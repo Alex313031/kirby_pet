@@ -4,11 +4,12 @@
 #include "framework.h"
 
 // Screensaver tuning. One tick every kTickMs; speed = pixels moved per tick.
+// The default speed is not a constant: it comes from the display table in
+// pet_lib (pet::ProfileForHeight) and depends on the screen height.
 inline constexpr UINT kTickTimerId = 1;
-inline constexpr UINT kTickMs      = 30;
+inline constexpr UINT kTickMs      = 25;
 inline constexpr int kSpeedMin     = 1;
 inline constexpr int kSpeedMax     = 32;
-inline constexpr int kSpeedDefault = 8;
 
 // Persisted settings: HKCU\Software\<kRegSubkey>\<value>
 inline constexpr wchar_t kRegSubkey[]     = L"Alex313031\\Kirby Screensaver";

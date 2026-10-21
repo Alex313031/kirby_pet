@@ -12,9 +12,9 @@
 // Adhere to semver -> semver.org
 #define MAJOR_VERSION 0
 #define MINOR_VERSION 0
-#define BUILD_VERSION 2
+#define BUILD_VERSION 3
 
-#define VERSION_STRING  _VERSION(MAJOR_VERSION, MINOR_VERSION, BUILD_VERSION) // L"0.0.2"
+#define VERSION_STRING  _VERSION(MAJOR_VERSION, MINOR_VERSION, BUILD_VERSION) // L"0.0.3"
 
 // Base name/identifier as BARE tokens (not "..." literals) so STRINGIZE can fold
 // them into the composite single literals below. Never pass an existing literal

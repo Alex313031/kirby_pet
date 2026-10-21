@@ -12,9 +12,9 @@
 // Adhere to semver -> semver.org
 #define MAJOR_VERSION 0
 #define MINOR_VERSION 0
-#define BUILD_VERSION 1
+#define BUILD_VERSION 2
 
-#define VERSION_STRING  _VERSION(MAJOR_VERSION, MINOR_VERSION, BUILD_VERSION) // L"0.0.1"
+#define VERSION_STRING  _VERSION(MAJOR_VERSION, MINOR_VERSION, BUILD_VERSION) // L"0.0.2"
 
 // Base name as a BARE token (not a "..." literal) so STRINGIZE can fold it
 // into the composite literals below; see app/version.h for why.

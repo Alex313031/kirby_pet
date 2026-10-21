@@ -20,13 +20,33 @@ namespace petwin {
   static int s_ticksSinceRescan = 0;
   static const int kRescanEvery = 50; // re-find the desktop window this often (ticks)
 
+  // What Create was given and which display-table row the loaded frames are
+  // for, kept so a resolution change can reload at the new size.
+  static HINSTANCE s_hInst                       = nullptr;
+  static const int (*s_frameIds)[pet::DIR_COUNT] = nullptr; // [pet::SpriteSet][pet::Dir]
+  static const pet::DisplayProfile* s_profile    = nullptr;
+
   /* -------------------------- Forward declarations -------------------------- */
 
   static RECT VirtualScreen();
   static void MoveWindowTo(const POINT& pos);
+  static bool LoadForProfile(const pet::DisplayProfile& profile);
   static LRESULT CALLBACK PetWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);
 
   /* ---------------------------- Static Functions ---------------------------- */
+
+  // Loads (or, later, reloads) the frame set a display-table row calls for,
+  // scaled to its size. The old frames are only let go once the new ones are in.
+  static bool LoadForProfile(const pet::DisplayProfile& profile) {
+    pet::Sprites loaded = {};
+    if (!pet::LoadSprites(s_hInst, s_frameIds[profile.set], profile.spriteSize, &loaded)) {
+      return false;
+    }
+    pet::FreeSprites(&s_sprites);
+    s_sprites = loaded;
+    s_profile = &profile;
+    return true;
+  }
 
   // The area the vacuum may roam: the whole virtual screen. NT4 has no multimon
   // metrics (they read 0), so fall back to the primary display there.
@@ -50,20 +70,27 @@ namespace petwin {
 
   /* ------------------------------- Functions -------------------------------- */
 
-  bool Create(HINSTANCE hInst, const int resIds[pet::DIR_COUNT]) {
+  const pet::DisplayProfile& ScreenProfile() {
+    return pet::ProfileForHeight(GetSystemMetrics(SM_CYSCREEN));
+  }
+
+  bool Create(HINSTANCE hInst, const int frameIds[pet::SPRITE_SET_COUNT][pet::DIR_COUNT]) {
     if (s_hwnd != nullptr) {
       return true;
     }
-    if (!pet::LoadSprites(hInst, resIds, &s_sprites)) {
+    s_hInst                            = hInst;
+    s_frameIds                         = frameIds;
+    const pet::DisplayProfile& profile = ScreenProfile();
+    if (!LoadForProfile(profile)) {
       return false;
     }
     if (!s_classRegistered) {
       WNDCLASSEXW wndClass = {};
       wndClass.cbSize      = sizeof(wndClass);
-      // CS_SAVEBITS is load-bearing: when the window moves, Windows puts back
-      // the pixels it saved from underneath instead of invalidating the desktop,
-      // so the trail we then paint onto the desktop isn't immediately repainted
-      // over by the wallpaper.
+      // CS_SAVEBITS lets Windows put back what was under the sprite itself
+      // where it can (show/hide, and moves on some versions) instead of asking
+      // the desktop to repaint. Where it can't, EraseOnDesktop flushes that
+      // repaint before painting the trail, so either way the trail wins.
       wndClass.style         = CS_SAVEBITS | CS_DBLCLKS;
       wndClass.lpfnWndProc   = PetWndProc;
       wndClass.hInstance     = hInst;
@@ -76,7 +103,7 @@ namespace petwin {
       }
       s_classRegistered = true;
     }
-    pet::VacuumInit(&s_vac, VirtualScreen(), s_sprites.size, kSpeedDefault);
+    pet::VacuumInit(&s_vac, VirtualScreen(), s_sprites.size, profile.speed);
     s_eraseColor = pet::DefaultEraseColor();
 
     s_hwnd = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW, kPetWndClass, nullptr, WS_POPUP,
@@ -97,8 +124,12 @@ namespace petwin {
     if (s_hwnd != nullptr) {
       DestroyWindow(s_hwnd);
       s_hwnd = nullptr;
+      // Leave the desktop as we found it: the trail was only ever paint on
+      // Explorer's window, so have Explorer draw its desktop again.
+      desktop::Restore();
     }
     pet::FreeSprites(&s_sprites);
+    s_profile = nullptr;
   }
 
   void SetSpeed(int pixelsPerTick) {
@@ -114,6 +145,18 @@ namespace petwin {
   }
 
   void UpdateBounds() {
+    // The new resolution may sit on a different display-table row. If that
+    // row wants another frame set or size, reload and re-fit the window to it;
+    // the user's speed is theirs and stays.
+    const pet::DisplayProfile& profile = ScreenProfile();
+    if (s_hwnd != nullptr && s_profile != nullptr &&
+        (profile.set != s_profile->set || profile.spriteSize != s_profile->spriteSize) &&
+        LoadForProfile(profile)) {
+      s_vac.size = s_sprites.size;
+      SetWindowPos(s_hwnd, nullptr, 0, 0, s_sprites.size.cx, s_sprites.size.cy,
+                   SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+      SetWindowRgn(s_hwnd, pet::CloneRegion(s_sprites, s_vac.facing), TRUE);
+    }
     pet::VacuumSetArea(&s_vac, VirtualScreen());
     s_vac.target = s_vac.pos;
     if (s_hwnd != nullptr) {
@@ -182,7 +225,10 @@ namespace petwin {
       MoveWindowTo(s_vac.pos);
     }
 
-    // The move put the saved pixels back where we were; now vacuum that spot.
+    // Now vacuum the whole spot we just left. The desktop DC is clipped to
+    // what is visible, so the part under the sprite's new outline is skipped
+    // for free and gets erased when we move on; painting the full rect is what
+    // keeps the old frame's pixels from lingering around the new one.
     const bool rescan = (++s_ticksSinceRescan >= kRescanEvery);
     if (rescan) {
       s_ticksSinceRescan = 0;

@@ -39,17 +39,17 @@ WizardImageFile="assets\installer_background.bmp"
 UseSetupLdr=yes
 
 [Files]
-Source: "release\{#ExeName}.exe"; DestDir: "{app}"
+Source: "Release\{#ExeName}.exe"; DestDir: "{app}"
 ; The screensaver and its INF sit next to the app so the right-click -> Install
 ; route (and a manual copy elsewhere) keep working after setup...
-Source: "release\{#ScrName}.scr"; DestDir: "{app}"
-Source: "src\scr\{#ScrName}.inf"; DestDir: "{app}"
+Source: "Release\{#ScrName}.scr"; DestDir: "{app}"
+Source: "Release\{#ScrName}.inf"; DestDir: "{app}"
 ; ...and the .scr also goes into the system directory, the only place Display
 ; Properties enumerates screensavers from (SysWOW64 on 64-bit Windows, where a
 ; 32-bit saver is still listed). ignoreversion so a same-version reinstall
 ; still overwrites; uninsrestartdelete in case it is the running saver at
 ; uninstall time.
-Source: "release\{#ScrName}.scr"; DestDir: "{sys}"; Flags: ignoreversion uninsrestartdelete
+Source: "Release\{#ScrName}.scr"; DestDir: "{sys}"; Flags: ignoreversion uninsrestartdelete
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#ExeName}.exe"

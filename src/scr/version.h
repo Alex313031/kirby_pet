@@ -12,9 +12,9 @@
 // Adhere to semver -> semver.org
 #define MAJOR_VERSION 0
 #define MINOR_VERSION 0
-#define BUILD_VERSION 1
+#define BUILD_VERSION 2
 
-#define VERSION_STRING  _VERSION(MAJOR_VERSION, MINOR_VERSION, BUILD_VERSION) // L"0.0.1"
+#define VERSION_STRING  _VERSION(MAJOR_VERSION, MINOR_VERSION, BUILD_VERSION) // L"0.0.2"
 
 // Base name/identifier as BARE tokens (not "..." literals) so STRINGIZE can fold
 // them into the composite single literals below. Never pass an existing literal
@@ -26,13 +26,13 @@
 #define APP_NAME        WIDEN(STRINGIZE(APP_NAME_TOKENS)) // L"Kirby Screensaver"
 #define MAIN_WNDCLASS   WindowsScreenSaverClass // Screensavers use a built in window class
 
-#define FILE_DESCRIPT   L"Vacuum Screensaver" // File description
+#define FILE_DESCRIPT   L"Vacuum Cleaner Screensaver" // File description
 #define INTERNAL_NAME   WIDEN(STRINGIZE(INTERNAL_TOKENS)) // L"kirby_scr"
 #define ORIG_FILENAME   WIDEN(STRINGIZE(INTERNAL_TOKENS.scr)) // L"kirby_scr.scr"
 #define PRODUCT_NAME    APP_NAME // Product name
 
 #define ABOUT_TITLE     WIDEN(STRINGIZE(About APP_NAME_TOKENS)) // L"About Kirby Screensaver"
-#define ABOUT_CONTENT   L"A screensaver with vacuum that cleans your screen."
+#define ABOUT_CONTENT   L"A vacuum cleaner screensaver."
 #define ABOUT_VERSION   WIDEN(STRINGIZE(Version MAJOR_VERSION.MINOR_VERSION.BUILD_VERSION)) // L"Version 0.0.1"
 #define ABOUT_COPYRIGHT LEGAL_COPYRIGHT
 

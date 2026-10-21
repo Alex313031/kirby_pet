@@ -5,6 +5,8 @@
 
 #include <pet_lib.h>
 
+#include "constants.h"
+
 namespace desktop {
 
   /* --------------------------------- Types ---------------------------------- */
@@ -20,8 +22,21 @@ namespace desktop {
   /* -------------------------- Forward declarations -------------------------- */
 
   static BOOL CALLBACK Hunter(HWND hWnd, LPARAM lParam);
+  static RECT ToClient(const RECT& screenRect);
 
   /* ---------------------------- Static Functions ---------------------------- */
+
+  // Maps a screen rect into the desktop window's client space. Its origin isn't
+  // (0,0) on multi-monitor layouts with a display left of / above the primary.
+  static RECT ToClient(const RECT& screenRect) {
+    POINT topLeft     = {screenRect.left, screenRect.top};
+    POINT bottomRight = {screenRect.right, screenRect.bottom};
+    ScreenToClient(s_desktop, &topLeft);
+    ScreenToClient(s_desktop, &bottomRight);
+    RECT clientRect;
+    SetRect(&clientRect, topLeft.x, topLeft.y, bottomRight.x, bottomRight.y);
+    return clientRect;
+  }
 
   // EnumWindows / EnumChildWindows callback; `lParam` carries which Pass we are
   // running. Recurses into the next pass as soon as its anchor window is found.
@@ -89,21 +104,49 @@ namespace desktop {
     if (s_desktop == nullptr) {
       return;
     }
-    // The list view's client origin isn't (0,0) on multi-monitor layouts with a
-    // display left of / above the primary; map the screen rect into its space.
-    POINT topLeft     = {screenRect.left, screenRect.top};
-    POINT bottomRight = {screenRect.right, screenRect.bottom};
-    ScreenToClient(s_desktop, &topLeft);
-    ScreenToClient(s_desktop, &bottomRight);
-    RECT clientRect;
-    SetRect(&clientRect, topLeft.x, topLeft.y, bottomRight.x, bottomRight.y);
 
-    HDC hdc = GetDC(s_desktop);
+    // Moving the sprite just uncovered a strip of desktop, and Windows
+    // invalidated it: Explorer has a WM_PAINT queued that will redraw the
+    // background and icons there - from its own process, a few milliseconds
+    // from now, on top of whatever we paint next. Make it paint NOW, before
+    // our fill, so ours lands last. Sent with a timeout so a hung Explorer
+    // costs this tick its flush rather than hanging us with it.
+    if (GetUpdateRect(s_desktop, nullptr, FALSE)) {
+      DWORD_PTR unused = 0;
+      SendMessageTimeoutW(s_desktop, WM_PAINT, 0, 0, SMTO_ABORTIFHUNG | SMTO_BLOCK,
+                          kDesktopPaintTimeoutMs, &unused);
+    }
+
+    const RECT clientRect = ToClient(screenRect);
+    HDC hdc               = GetDC(s_desktop);
     if (hdc == nullptr) {
       return;
     }
+    // The DC is clipped to what is visible, so the sprite's own outline (it is
+    // topmost) is skipped automatically; everything else in the rect is ours.
     pet::EraseRect(hdc, clientRect, color);
     ReleaseDC(s_desktop, hdc);
+  }
+
+  void Restore() {
+    if (s_desktop == nullptr || !IsWindow(s_desktop)) {
+      FindHandle();
+    }
+    if (s_desktop == nullptr) {
+      return;
+    }
+    // Invalidate from the top of the desktop's window tree, children included:
+    // on newer shells the wallpaper is painted by an ancestor of the list view
+    // (the view is transparent), so repainting the view alone would not bring
+    // it back. If we only ever had the raw desktop window to draw on, repaint
+    // just that - its children are every top-level window on the screen.
+    HWND top = s_desktop;
+    for (HWND parent = GetParent(top); parent != nullptr; parent = GetParent(top)) {
+      top = parent;
+    }
+    const UINT flags = RDW_INVALIDATE | RDW_ERASE |
+                       (top == GetDesktopWindow() ? 0u : static_cast<UINT>(RDW_ALLCHILDREN));
+    RedrawWindow(top, nullptr, nullptr, flags);
   }
 
 } // namespace desktop

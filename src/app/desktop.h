@@ -14,8 +14,16 @@ namespace desktop {
   HWND FindHandle();
 
   // Fills `screenRect` (screen coordinates) on the desktop window with `color`.
-  // Uses the cached handle; `rescan` forces a FindHandle first.
+  // First makes Explorer finish any repaint it has pending there, so what we
+  // paint lands last and its icons can't come back over the trail. Uses the
+  // cached handle; `rescan` forces a FindHandle first.
   void EraseOnDesktop(const RECT& screenRect, COLORREF color, bool rescan = false);
+
+  // Puts the desktop back the way Explorer draws it, wiping every trail we
+  // painted: the whole desktop window tree is invalidated with erase and left
+  // for Explorer to repaint. Asynchronous, so a hung shell can't hold up an
+  // exit. Call it on the way out.
+  void Restore();
 
 } // namespace desktop
 

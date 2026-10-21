@@ -48,7 +48,7 @@ $(NAME): $(TARGET)
 
 # The .scr - scrnsavw (the UNICODE scrnsave) owns WinMain and the /s /c /p
 # protocol; it must come after our objects, which define the procs it calls.
-$(TARGET): $(OBJ_C) $(OBJ_CPP) $(OBJ_RC) $(LIB_A)
+$(TARGET): $(OBJ_C) $(OBJ_CPP) $(OBJ_RC) $(LIB_A) | $(OUT_DIR)
 	$(LD) $(LDFLAGS) -static $(OBJ_C) $(OBJ_CPP) $(OBJ_RC) -lscrnsavw -lpet_lib $(LIBS) -o $(TARGET)
 
 # The library, via its own Makefile

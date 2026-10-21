@@ -29,7 +29,16 @@ LOGGING_DIR  := $(SRC_ROOT)/logging
 
 # Where the .exe and .scr land. Default is the project root, like every other
 # project here; override with e.g. `make OUT_DIR=release` to feed the .iss.
+# A relative path is taken from the PROJECT ROOT, never from the subdirectory
+# make happens to be running in: the sub-makes the root spawns inherit the
+# variable on their command line and run inside src/app and src/scr, where a
+# bare `release` would otherwise point somewhere that doesn't exist. Absolute
+# paths (leading /, or a drive letter on Windows) are left alone. `override`
+# because a command-line variable would ignore a plain assignment.
 OUT_DIR ?= $(PROJECT_ROOT)
+ifeq ($(filter /%,$(OUT_DIR))$(findstring :,$(OUT_DIR)),)
+override OUT_DIR := $(PROJECT_ROOT)/$(OUT_DIR)
+endif
 
 # Compiler flags #
 DEFINES  := -DUNICODE -D_UNICODE -D_WINDOWS -DWINVER=0x0500 -D_WIN32_WINNT=0x0500 -D_WIN64_WINNT=0x0502 -D_WIN32_IE=0x501
@@ -62,6 +71,12 @@ LIBS     := -lkernel32 -luser32 -lgdi32 -lshell32 -lcomctl32 -lcomdlg32 -ladvapi
 # Pin the default goal: the dependency -includes in each Makefile would
 # otherwise make the first .d rule the default target.
 .DEFAULT_GOAL := all
+
+# The output directory must exist before anything links into it. Targets list
+# it as an order-only prerequisite (after a |), so its timestamp changing as
+# files land in it never triggers a relink.
+$(OUT_DIR):
+	mkdir -p $(OUT_DIR)
 
 # Compilation Rules #
 # Compile C sources

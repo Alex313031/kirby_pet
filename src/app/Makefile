@@ -46,7 +46,7 @@ all: $(NAME)
 $(NAME): $(TARGET)
 
 # The .exe
-$(TARGET): $(OBJ_C) $(OBJ_CPP) $(OBJ_RC) $(LIB_A)
+$(TARGET): $(OBJ_C) $(OBJ_CPP) $(OBJ_RC) $(LIB_A) | $(OUT_DIR)
 	$(LD) $(LDFLAGS) -static $(OBJ_C) $(OBJ_CPP) $(OBJ_RC) -lpet_lib $(LIBS) -o $(TARGET)
 
 # The library, via its own Makefile

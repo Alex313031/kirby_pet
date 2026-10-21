@@ -341,7 +341,7 @@ static void PickColor(HWND hWnd) {
 static void LoadSettings(HWND hWnd) {
   DWORD value = 0;
 
-  int speed = kSpeedDefault;
+  int speed = petwin::ScreenProfile().speed; // the display table's default for this screen
   if (pet::RegReadDword(kRegSubkey, kRegSpeed, &value)) {
     speed = std::clamp(static_cast<int>(value), kSpeedMin, kSpeedMax);
   }
@@ -761,11 +761,12 @@ bool InitApp(HWND hWnd) {
   if (hWnd == nullptr) {
     return false;
   }
-  // The four facings, in pet::Dir order. Both sizes are baked in; the app uses
-  // the 2x (64x64) set until sprite size is chosen from the screen size.
-  static const int kFrameIds2x[pet::DIR_COUNT] = {IDB_PET_UP_2X, IDB_PET_DOWN_2X, IDB_PET_LEFT_2X,
-                                                  IDB_PET_RIGHT_2X};
-  if (!petwin::Create(g_hInstance, kFrameIds2x)) {
+  // Both baked sets, pet::SpriteSet by pet::Dir. The pet window picks the set
+  // and the size to scale it to for this screen from the display table.
+  static const int kFrameIds[pet::SPRITE_SET_COUNT][pet::DIR_COUNT] = {
+      {IDB_PET_UP_1X, IDB_PET_DOWN_1X, IDB_PET_LEFT_1X, IDB_PET_RIGHT_1X},
+      {IDB_PET_UP_2X, IDB_PET_DOWN_2X, IDB_PET_LEFT_2X, IDB_PET_RIGHT_2X}};
+  if (!petwin::Create(g_hInstance, kFrameIds)) {
     LOG(ERROR) << L"Failed to create the pet window (sprites missing or not 32-bpp?)";
     ErrorBox(hWnd, L"Kirby Pet", L"Could not load the vacuum sprites!");
     return false;

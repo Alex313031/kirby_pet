@@ -52,15 +52,20 @@ inline constexpr INT CW_HEIGHT = kPadTop +                    // top pad
                                  kButtonHeight +              // pick + swatch
                                  kPadTop;                     // bottom pad
 
-// Pet animation: one tick every kTickMs; speed = pixels moved per tick.
+// Pet animation: one tick every kTickMs; speed = pixels moved per tick. The
+// default speed is not a constant: it comes from the display table in pet_lib
+// (pet::ProfileForHeight) and depends on the screen height.
 inline constexpr UINT kTickTimerId = 1;
-inline constexpr UINT kTickMs      = 60;
+inline constexpr UINT kTickMs      = 50;
 inline constexpr int kSpeedMin     = 1;
 inline constexpr int kSpeedMax     = 32;
-inline constexpr int kSpeedDefault = 8;
 // Run-away mode: flee when the cursor comes within this many pixels of the
 // vacuum's centre, running this far away from it.
 inline constexpr int kFleeRadius = 120;
+// How long to wait for Explorer to finish repainting the desktop before we
+// paint the trail over it (see desktop::EraseOnDesktop). Explorer normally
+// answers in well under a millisecond; this only matters if it is hung.
+inline constexpr UINT kDesktopPaintTimeoutMs = 50;
 
 // Registry: HKCU\Software\<kRegSubkey>\<value>
 inline constexpr wchar_t kRegSubkey[]     = L"Alex313031\\Kirby Pet";

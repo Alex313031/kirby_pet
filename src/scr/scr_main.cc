@@ -37,7 +37,7 @@ static int s_row        = 0;
 static bool s_rightward = true;
 
 // Settings, loaded from the registry on WM_CREATE and on the dialog's init.
-static int s_speed               = kSpeedDefault;
+static int s_speed               = 0; // LoadSettings: the display table's default, or the saved one
 static COLORREF s_customColor    = RGB(0, 0, 0);
 static bool s_useDesktopColor    = true;
 static COLORREF s_custColors[16] = {}; // ChooseColor's custom-palette slots
@@ -45,7 +45,7 @@ static COLORREF s_custColors[16] = {}; // ChooseColor's custom-palette slots
 /* -------------------------- Forward declarations -------------------------- */
 
 static COLORREF EraseColor();
-static void LoadSettings();
+static void LoadSettings(int defaultSpeed);
 static void SaveSettings();
 static int NumRows();
 static int RowY(int row);
@@ -69,9 +69,11 @@ static COLORREF EraseColor() {
   return s_useDesktopColor ? pet::DefaultEraseColor() : s_customColor;
 }
 
-static void LoadSettings() {
+// `defaultSpeed` is what the display table says for this screen; a saved
+// value, if there is one, wins over it.
+static void LoadSettings(int defaultSpeed) {
   DWORD value = 0;
-  s_speed     = kSpeedDefault;
+  s_speed     = std::clamp(defaultSpeed, kSpeedMin, kSpeedMax);
   if (pet::RegReadDword(kRegSubkey, kRegSpeed, &value)) {
     s_speed = std::clamp(static_cast<int>(value), kSpeedMin, kSpeedMax);
   }
@@ -288,20 +290,21 @@ static INT_PTR CALLBACK AboutDlgProc(HWND hDlg, UINT message, WPARAM wParam, LPA
 LRESULT WINAPI ScreenSaverProcW(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
   switch (message) {
     case WM_CREATE: {
-      LoadSettings();
       CreateCanvas(hWnd);
-      // Both sizes are baked in: the tiny /p preview window gets the 1x set,
-      // the real screen the 2x set.
-      static const int kFrameIds1x[pet::DIR_COUNT] = {IDB_PET_UP_1X, IDB_PET_DOWN_1X,
-                                                      IDB_PET_LEFT_1X, IDB_PET_RIGHT_1X};
-      static const int kFrameIds2x[pet::DIR_COUNT] = {IDB_PET_UP_2X, IDB_PET_DOWN_2X,
-                                                      IDB_PET_LEFT_2X, IDB_PET_RIGHT_2X};
+      // The display table picks the frame set, the size to scale it to and the
+      // default speed from the height we are drawing into: the real screen for
+      // /s, the tiny Display Properties monitor for /p (its smallest row).
+      const pet::DisplayProfile& profile = pet::ProfileForHeight(s_canvasHeight);
+      LoadSettings(profile.speed);
+      static const int kFrameIds[pet::SPRITE_SET_COUNT][pet::DIR_COUNT] = {
+          {IDB_PET_UP_1X, IDB_PET_DOWN_1X, IDB_PET_LEFT_1X, IDB_PET_RIGHT_1X},
+          {IDB_PET_UP_2X, IDB_PET_DOWN_2X, IDB_PET_LEFT_2X, IDB_PET_RIGHT_2X}};
       s_haveSprites =
-          pet::LoadSprites(hMainInstance, fChildPreview ? kFrameIds1x : kFrameIds2x, &s_sprites);
+          pet::LoadSprites(hMainInstance, kFrameIds[profile.set], profile.spriteSize, &s_sprites);
       // Without sprites we still sweep (an invisible vacuum still cleans).
-      const int fallback = fChildPreview ? 32 : 64;
-      const SIZE size    = s_haveSprites ? s_sprites.size : SIZE{fallback, fallback};
-      const RECT area    = {0, 0, s_canvasWidth, s_canvasHeight};
+      const SIZE size =
+          s_haveSprites ? s_sprites.size : SIZE{profile.spriteSize, profile.spriteSize};
+      const RECT area = {0, 0, s_canvasWidth, s_canvasHeight};
       pet::VacuumInit(&s_vac, area, size, s_speed);
       StartSweep();
       SetTimer(hWnd, kTickTimerId, kTickMs, nullptr);
@@ -350,7 +353,7 @@ LRESULT WINAPI ScreenSaverProcW(HWND hWnd, UINT message, WPARAM wParam, LPARAM l
 WINBOOL WINAPI ScreenSaverConfigureDialog(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam) {
   switch (message) {
     case WM_INITDIALOG: {
-      LoadSettings();
+      LoadSettings(pet::ProfileForHeight(GetSystemMetrics(SM_CYSCREEN)).speed);
       HWND slider = GetDlgItem(hDlg, IDC_SPEED);
       SendMessageW(slider, TBM_SETRANGE, TRUE, MAKELPARAM(kSpeedMin, kSpeedMax));
       SendMessageW(slider, TBM_SETTICFREQ, 4, 0);

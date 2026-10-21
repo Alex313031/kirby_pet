@@ -10,12 +10,90 @@
 
 namespace pet {
 
+  /* -------------------------------- Statics --------------------------------- */
+
+  // The display table. Rows are tried top to bottom and the first whose
+  // maxHeight the screen does not exceed wins, so taller screens get bigger
+  // sprites and a faster default; the last row catches anything above 2160.
+  //   max height  set        size  speed
+  static const DisplayProfile kDisplayProfiles[] = {
+      {600, SPRITE_1X, 24, 12},   {800, SPRITE_1X, 32, 16},
+      {1024, SPRITE_2X, 48, 16},  {1080, SPRITE_2X, 64, 16},
+      {1440, SPRITE_2X, 64, 18},  {2048, SPRITE_2X, 96, 18},
+      {2160, SPRITE_2X, 128, 18}, {std::numeric_limits<int>::max(), SPRITE_2X, 128, 20},
+  };
+
   /* -------------------------- Forward declarations -------------------------- */
 
   static HBITMAP LoadBitmap(HINSTANCE hInst, const int resId);
+  static HBITMAP ScaleDib(HBITMAP source, int targetHeight);
   static std::wstring RegPath(const wchar_t* subkey);
 
   /* ---------------------------- Static Functions ---------------------------- */
+
+  // Nearest-neighbour resample of a 32-bpp DIB section to `targetHeight`
+  // pixels tall, width in proportion. Done by hand rather than with StretchBlt
+  // so every pixel is copied whole - alpha byte included - and nothing is
+  // filtered: the sprites are hard-edged pixel art and must stay that way at
+  // any size. The result is a bottom-up 32-bpp BI_RGB DIB section, the same
+  // layout LoadImage gives the native frames, so nothing downstream (the
+  // region builder, the blit, GetObject's idea of orientation) sees anything
+  // it hasn't already handled. The caller owns it.
+  static HBITMAP ScaleDib(HBITMAP source, int targetHeight) {
+    DIBSECTION src = {};
+    if (GetObjectW(source, sizeof(src), &src) != static_cast<int>(sizeof(src)) ||
+        src.dsBm.bmBits == nullptr || src.dsBm.bmBitsPixel != 32 || targetHeight <= 0) {
+      return nullptr;
+    }
+    const int srcWidth  = src.dsBm.bmWidth;
+    const int srcHeight = src.dsBm.bmHeight;
+    const int dstHeight = targetHeight;
+    const int dstWidth  = std::max(1, srcWidth * targetHeight / srcHeight);
+
+    BITMAPINFO info              = {};
+    info.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
+    info.bmiHeader.biWidth       = dstWidth;
+    info.bmiHeader.biHeight      = dstHeight; // positive: bottom-up, like every native frame
+    info.bmiHeader.biPlanes      = 1;
+    info.bmiHeader.biBitCount    = 32;
+    info.bmiHeader.biCompression = BI_RGB;
+    void* dstBits                = nullptr;
+    // Against a real screen DC rather than NULL: allowed either way for
+    // DIB_RGB_COLORS, but the DC form is the one every GDI since 95 has seen.
+    HDC screen     = GetDC(nullptr);
+    HBITMAP target = CreateDIBSection(screen, &info, DIB_RGB_COLORS, &dstBits, nullptr, 0);
+    if (screen != nullptr) {
+      ReleaseDC(nullptr, screen);
+    }
+    DIBSECTION dst = {};
+    if (target == nullptr || dstBits == nullptr ||
+        GetObjectW(target, sizeof(dst), &dst) != static_cast<int>(sizeof(dst))) {
+      if (target != nullptr) {
+        DeleteObject(target);
+      }
+      return nullptr;
+    }
+
+    // Both buffers are addressed by visual row (0 = top) and mapped to their
+    // storage row explicitly, so neither orientation is assumed anywhere.
+    const BYTE* srcBase    = static_cast<const BYTE*>(src.dsBm.bmBits);
+    const int srcStride    = src.dsBm.bmWidthBytes;
+    const bool srcBottomUp = src.dsBmih.biHeight > 0;
+    BYTE* dstBase          = static_cast<BYTE*>(dstBits);
+    const int dstStride    = dst.dsBm.bmWidthBytes; // GDI's own stride, not assumed
+    for (int dstY = 0; dstY < dstHeight; ++dstY) {
+      const int srcY      = dstY * srcHeight / dstHeight;
+      const int srcRow    = srcBottomUp ? (srcHeight - 1 - srcY) : srcY;
+      const int dstRow    = dstHeight - 1 - dstY; // bottom-up storage
+      const BYTE* srcLine = srcBase + srcRow * srcStride;
+      DWORD* dstLine      = reinterpret_cast<DWORD*>(dstBase + dstRow * dstStride);
+      for (int dstX = 0; dstX < dstWidth; ++dstX) {
+        const int srcX = dstX * srcWidth / dstWidth;
+        dstLine[dstX]  = *reinterpret_cast<const DWORD*>(srcLine + srcX * 4);
+      }
+    }
+    return target;
+  }
 
   static HBITMAP LoadBitmap(HINSTANCE hInst, const int resId) {
     if (hInst == nullptr || resId == -1) {
@@ -112,7 +190,17 @@ namespace pet {
     return hRgn;
   }
 
-  bool LoadSprites(HINSTANCE hInst, const int resIds[DIR_COUNT], Sprites* out) {
+  const DisplayProfile& ProfileForHeight(int screenHeight) {
+    const size_t rows = sizeof(kDisplayProfiles) / sizeof(kDisplayProfiles[0]);
+    for (size_t row = 0; row < rows; ++row) {
+      if (screenHeight <= kDisplayProfiles[row].maxHeight) {
+        return kDisplayProfiles[row];
+      }
+    }
+    return kDisplayProfiles[rows - 1]; // can't happen: the last row's maxHeight is INT_MAX
+  }
+
+  bool LoadSprites(HINSTANCE hInst, const int resIds[DIR_COUNT], int spriteSize, Sprites* out) {
     if (hInst == nullptr || resIds == nullptr || out == nullptr) {
       return false;
     }
@@ -126,13 +214,25 @@ namespace pet {
         FreeSprites(out);
         return false;
       }
-      out->bmp[frame]   = bitmap;
       BITMAP bitmapInfo = {};
       if (GetObjectW(bitmap, sizeof(bitmapInfo), &bitmapInfo) == 0 ||
           bitmapInfo.bmBitsPixel != 32) {
+        DeleteObject(bitmap);
         FreeSprites(out);
         return false;
       }
+      // Resample to the size the display table asked for, unless it already is.
+      if (spriteSize > 0 && bitmapInfo.bmHeight != spriteSize) {
+        HBITMAP scaled = ScaleDib(bitmap, spriteSize);
+        DeleteObject(bitmap);
+        if (scaled == nullptr) {
+          FreeSprites(out);
+          return false;
+        }
+        bitmap = scaled;
+        GetObjectW(bitmap, sizeof(bitmapInfo), &bitmapInfo);
+      }
+      out->bmp[frame] = bitmap;
       if (frame == 0) {
         out->size.cx = bitmapInfo.bmWidth;
         out->size.cy = bitmapInfo.bmHeight;

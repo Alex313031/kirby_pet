@@ -12,6 +12,11 @@
 // defines, which windows.h reads on its way through.
 #include "pet_version.h"
 
+// Use std::min / std::max, instead of the Win32-specific MIN/MAX.
+#ifndef NOMINMAX
+ #define NOMINMAX
+#endif
+
 #include <windows.h>
 
 // clang-format on
@@ -43,14 +48,34 @@ namespace pet {
     SIZE size;   // sprite size, copied from Sprites
   };
 
+  // Which baked frame set a consumer hands to LoadSprites. Indexes the
+  // consumer's resource-ID table, in this order: 1x is 32 px, 2x is 64 px.
+  enum SpriteSet { SPRITE_1X = 0, SPRITE_2X = 1, SPRITE_SET_COUNT = 2 };
+
+  // One row of the display table: on a screen up to `maxHeight` pixels tall,
+  // load `set`, scale its frames to `spriteSize` pixels square, and default
+  // the speed to `speed` pixels per tick.
+  struct DisplayProfile {
+    int maxHeight;
+    SpriteSet set;
+    int spriteSize;
+    int speed;
+  };
+
   /* ------------------------------- Functions -------------------------------- */
 
   /* ------------------------------- Sprites ---------------------------------- */
 
-  // Loads the frames from `hInst`'s RT_BITMAP resources `resIds` (Dir order)
+  // The display-table row for a screen `screenHeight` pixels tall: the first
+  // row whose maxHeight it does not exceed. The last row catches everything.
+  const DisplayProfile& ProfileForHeight(int screenHeight);
+
+  // Loads the frames from `hInst`'s RT_BITMAP resources `resIds` (Dir order),
+  // resamples each to `spriteSize` pixels tall (0 keeps the native size;
+  // nearest-neighbour, so the pixel art stays crisp and the alpha survives),
   // and builds their alpha regions. Returns false - and frees whatever it had
   // loaded - if any frame is missing, not 32-bpp, or a different size.
-  bool LoadSprites(HINSTANCE hInst, const int resIds[DIR_COUNT], Sprites* out);
+  bool LoadSprites(HINSTANCE hInst, const int resIds[DIR_COUNT], int spriteSize, Sprites* out);
   void FreeSprites(Sprites* sprites);
 
   // A caller-owned copy of a frame's region (origin 0,0). SetWindowRgn takes
