@@ -13,6 +13,7 @@
 
 /assets/*.txt eol=crlf
 *.iss eol=crlf
+*.inf eol=crlf
 *.dlg eol=crlf
 
 # .chm files

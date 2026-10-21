@@ -20,7 +20,7 @@ executable("kirby_scr") {
     "version.h",
   ]
 
-  # Binary resources kirby_pet_scr.rc pulls in. windres' -MMD only reports
+  # Binary resources kirby_scr.rc pulls in. windres' -MMD only reports
   # #included headers, so without these a sprite edit wouldn't rebuild the .res.
   inputs = [
     "../bmp/down_1x.bmp",

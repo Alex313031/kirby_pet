@@ -1,0 +1,67 @@
+; Kirby Vacuum Screensaver - setup information file.
+;
+; Right-click kirby_scr.inf -> Install (which runs
+;   rundll32 setupapi,InstallHinfSection DefaultInstall 132 <this file>)
+; copies kirby_scr.scr into the system directory - the only place Display
+; Properties looks for screensavers - keeps a copy of this file under
+; %SystemRoot%\Inf, and registers an Add/Remove Programs entry whose
+; uninstaller runs [DefaultUninstall] below. 132 = 128 (take the source files
+; from this INF's own directory, so the .scr must sit next to it) + 4.
+;
+; $CHICAGO$ is accepted by every Windows from 95 to 11; the NT-only
+; $Windows NT$ would buy nothing here.
+
+[Version]
+Signature="$CHICAGO$"
+Provider=%Developer%
+
+[DefaultInstall]
+CopyFiles=KirbyScr.Files,KirbyScr.Inf
+AddReg=KirbyScr.AddReg
+
+[DefaultUninstall]
+DelFiles=KirbyScr.Files,KirbyScr.Inf
+DelReg=KirbyScr.DelReg
+
+; 11 = %SystemRoot%\System32 (SysWOW64 for a 32-bit .scr on 64-bit Windows,
+;      which the screensaver list still enumerates)
+; 17 = %SystemRoot%\Inf
+[DestinationDirs]
+KirbyScr.Files=11
+KirbyScr.Inf=17
+
+[KirbyScr.Files]
+kirby_scr.scr
+
+[KirbyScr.Inf]
+kirby_scr.inf
+
+[SourceDisksNames]
+1=%DiskName%,,,
+
+[SourceDisksFiles]
+kirby_scr.scr=1
+kirby_scr.inf=1
+
+; Add/Remove Programs entry. %17% expands to the Inf directory at install
+; time, so the uninstall string points at the copy made above, not at
+; wherever the user happened to run this from.
+[KirbyScr.AddReg]
+HKLM,%UninstallKey%,"DisplayName",,"%AppName%"
+HKLM,%UninstallKey%,"DisplayVersion",,"%AppVer%"
+HKLM,%UninstallKey%,"Publisher",,"%Developer%"
+HKLM,%UninstallKey%,"URLInfoAbout",,"%GitURL%"
+HKLM,%UninstallKey%,"UninstallString",,"rundll32.exe setupapi.dll,InstallHinfSection DefaultUninstall 132 %17%\kirby_scr.inf"
+HKLM,%UninstallKey%,"NoModify",0x00010001,1
+HKLM,%UninstallKey%,"NoRepair",0x00010001,1
+
+[KirbyScr.DelReg]
+HKLM,%UninstallKey%
+
+[Strings]
+AppName="Kirby Vacuum Screensaver"
+AppVer="0.0.2"
+Developer="Alex313031"
+GitURL="https://github.com/Alex313031/kirby_pet"
+DiskName="Kirby Vacuum Screensaver Files"
+UninstallKey="Software\Microsoft\Windows\CurrentVersion\Uninstall\KirbyScr"
