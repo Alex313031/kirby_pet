@@ -296,6 +296,11 @@ LRESULT WINAPI ScreenSaverProcW(HWND hWnd, UINT message, WPARAM wParam, LPARAM l
       // /s, the tiny Display Properties monitor for /p (its smallest row).
       const pet::DisplayProfile& profile = pet::ProfileForHeight(s_canvasHeight);
       LoadSettings(profile.speed);
+      if (fChildPreview) {
+        // The preview is a ~150x110 box: the slider's speed (saved, or the
+        // table's default) is a blur in it, so run at half, never below the min.
+        s_speed = std::max(kSpeedMin, s_speed / 2);
+      }
       static const int kFrameIds[pet::SPRITE_SET_COUNT][pet::DIR_COUNT] = {
           {IDB_PET_UP_1X, IDB_PET_DOWN_1X, IDB_PET_LEFT_1X, IDB_PET_RIGHT_1X},
           {IDB_PET_UP_2X, IDB_PET_DOWN_2X, IDB_PET_LEFT_2X, IDB_PET_RIGHT_2X}};
