@@ -7,8 +7,10 @@
 #include <pet_lib.h>
 // clang-format on
 
-// The on-screen vacuum: a topmost, region-shaped popup window driven by a
-// pet::Vacuum, owning the sprites. The settings window ticks it on a timer.
+// The on-screen vacuum: a topmost popup window driven by a pet::Vacuum, owning
+// the sprites, that never takes the mouse (layered + colour-keyed and
+// click-through on 2000+; region-shaped on NT4). The settings window ticks it
+// on a timer.
 namespace petwin {
 
   enum Mode { MODE_IDLE = 0, MODE_FOLLOW = 1, MODE_RUNAWAY = 2 };
@@ -28,8 +30,8 @@ namespace petwin {
   void SetEraseColor(COLORREF color);
   void UpdateBounds(); // call on WM_DISPLAYCHANGE
 
-  // One animation tick: aim per the mode, step, move / reshape the window, and
-  // vacuum (erase to the color) the spot just vacated on the desktop.
+  // One animation tick: aim per the mode, step, move the window, and vacuum
+  // (erase to the color) the spot just vacated on the desktop.
   void Tick();
 
   HWND Handle();

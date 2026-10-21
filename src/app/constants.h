@@ -77,6 +77,9 @@ inline constexpr wchar_t kRegTray[]       = L"MinimizeToTray";
 
 // Window class of the on-screen vacuum sprite.
 inline constexpr wchar_t kPetWndClass[] = L"KirbyPetSprite";
+// What the sprite window paints around the frame and tells Windows to treat
+// as see-through (LWA_COLORKEY). Must never appear in the sprite art itself.
+inline constexpr COLORREF kSpriteColorKey = RGB_MAGENTA;
 
 // Child window style
 inline constexpr DWORD dwCHILD = WS_CHILD | WS_VISIBLE;

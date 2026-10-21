@@ -385,8 +385,12 @@ static void SaveSettings() {
 /* --------------------------------- Tray ----------------------------------- */
 
 static void AddTrayIcon(HWND hWnd) {
-  NOTIFYICONDATAW nid  = {};
-  nid.cbSize           = sizeof(nid);
+  NOTIFYICONDATAW nid = {};
+  // The original (NT4 / IE3) layout, not sizeof: we only use the fields it
+  // has, every later shell still accepts it, and NT4's shell32 4.0 rejects
+  // anything bigger - silently, which with tray mode on would strand the
+  // window hidden with no icon to bring it back.
+  nid.cbSize           = NOTIFYICONDATAW_V1_SIZE;
   nid.hWnd             = hWnd;
   nid.uID              = kTrayIconId;
   nid.uFlags           = NIF_MESSAGE | NIF_ICON | NIF_TIP;
@@ -401,7 +405,7 @@ static void RemoveTrayIcon(HWND hWnd) {
     return;
   }
   NOTIFYICONDATAW nid = {};
-  nid.cbSize          = sizeof(nid);
+  nid.cbSize          = NOTIFYICONDATAW_V1_SIZE; // see AddTrayIcon
   nid.hWnd            = hWnd;
   nid.uID             = kTrayIconId;
   Shell_NotifyIconW(NIM_DELETE, &nid);
@@ -576,6 +580,12 @@ int APIENTRY wWinMain(HINSTANCE hInstance,
   if (!g_debug_mode && !g_show_version && !g_show_help) {
     if (logging::HideConsole()) {
       s_console_hidden = true;
+    } else {
+      // No window to hide (NT4, if csrss is too slow for the title lookup). A
+      // console we can't hide is one the user can close, and closing a console
+      // ends the process that owns it - so better no console at all. The log
+      // file still gets everything.
+      logging::DetachConsoleImpl();
     }
   }
 
@@ -797,8 +807,9 @@ bool LaunchHelp(HWND hWnd) {
                  L"Follow the cursor - it chases the mouse pointer.\n"
                  L"Run away from the cursor - it flees when the pointer gets close.\n"
                  L"Neither - it stays where it is.\n\n"
-                 L"Drag the vacuum with the left mouse button; right-click or\n"
-                 L"double-click it to bring this window back.");
+                 L"The vacuum never gets in the way: clicks go straight through it\n"
+                 L"to whatever is underneath. Bring this window back from the\n"
+                 L"taskbar, or from the tray icon when minimize-to-tray is on.");
 }
 
 INT_PTR CALLBACK AboutDlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam) {

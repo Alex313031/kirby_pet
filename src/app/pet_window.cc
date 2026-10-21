@@ -1,4 +1,5 @@
-// The sprite window: a topmost, region-shaped popup that pet_lib drives.
+// The sprite window: a topmost popup that pet_lib drives. It never takes the
+// mouse - a pet that parks under the pointer must not eat the click.
 
 #include "pet_window.h"
 
@@ -8,6 +9,12 @@
 
 namespace petwin {
 
+  /* --------------------------------- Types ---------------------------------- */
+
+  // Windows 2000+. Resolved at run time rather than imported, so the binary
+  // still loads on NT4, which gets the region-shaped fallback instead.
+  typedef BOOL(WINAPI* FnSetLayeredWindowAttributes)(HWND, COLORREF, BYTE, DWORD);
+
   /* ------------------------------ Static state ------------------------------ */
 
   static HWND s_hwnd            = nullptr;
@@ -15,10 +22,16 @@ namespace petwin {
   static pet::Vacuum s_vac      = {};
   static Mode s_mode            = MODE_FOLLOW;
   static COLORREF s_eraseColor  = 0;
-  static bool s_dragging        = false;
   static bool s_classRegistered = false;
   static int s_ticksSinceRescan = 0;
   static const int kRescanEvery = 50; // re-find the desktop window this often (ticks)
+
+  // Which kind of window the sprite is. Layered (2000+): colour-keyed, so the
+  // outline is per pixel, and WS_EX_TRANSPARENT makes the whole thing
+  // click-through at the system level; the system composites it, so moving it
+  // never disturbs the desktop beneath. Fallback (NT4): region-shaped, and the
+  // mouse still lands on it.
+  static bool s_layered = false;
 
   // What Create was given and which display-table row the loaded frames are
   // for, kept so a resolution change can reload at the new size.
@@ -28,12 +41,28 @@ namespace petwin {
 
   /* -------------------------- Forward declarations -------------------------- */
 
+  static FnSetLayeredWindowAttributes ResolveSetLayeredWindowAttributes();
   static RECT VirtualScreen();
   static void MoveWindowTo(const POINT& pos);
   static bool LoadForProfile(const pet::DisplayProfile& profile);
+  static void ApplyShape();
   static LRESULT CALLBACK PetWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);
 
   /* ---------------------------- Static Functions ---------------------------- */
+
+  static FnSetLayeredWindowAttributes ResolveSetLayeredWindowAttributes() {
+    static FnSetLayeredWindowAttributes pfn = nullptr;
+    static bool s_resolved                  = false;
+    if (!s_resolved) {
+      HMODULE hUser32 = GetModuleHandleW(kUser32Dll);
+      if (hUser32 != nullptr) {
+        pfn = reinterpret_cast<FnSetLayeredWindowAttributes>(
+            GetProcAddress(hUser32, "SetLayeredWindowAttributes"));
+      }
+      s_resolved = true;
+    }
+    return pfn;
+  }
 
   // Loads (or, later, reloads) the frame set a display-table row calls for,
   // scaled to its size. The old frames are only let go once the new ones are in.
@@ -68,6 +97,17 @@ namespace petwin {
     SetWindowPos(s_hwnd, nullptr, pos.x, pos.y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
   }
 
+  // Gives the window the current facing's outline. Layered: nothing to do, the
+  // colour key shapes it per pixel at paint time. Fallback: the window region,
+  // which SetWindowRgn takes ownership of, hence the fresh clone.
+  static void ApplyShape() {
+    if (s_layered) {
+      InvalidateRect(s_hwnd, nullptr, FALSE);
+    } else {
+      SetWindowRgn(s_hwnd, pet::CloneRegion(s_sprites, s_vac.facing), TRUE);
+    }
+  }
+
   /* ------------------------------- Functions -------------------------------- */
 
   const pet::DisplayProfile& ScreenProfile() {
@@ -80,6 +120,7 @@ namespace petwin {
     }
     s_hInst                            = hInst;
     s_frameIds                         = frameIds;
+    s_layered                          = (ResolveSetLayeredWindowAttributes() != nullptr);
     const pet::DisplayProfile& profile = ScreenProfile();
     if (!LoadForProfile(profile)) {
       return false;
@@ -87,15 +128,15 @@ namespace petwin {
     if (!s_classRegistered) {
       WNDCLASSEXW wndClass = {};
       wndClass.cbSize      = sizeof(wndClass);
-      // CS_SAVEBITS lets Windows put back what was under the sprite itself
-      // where it can (show/hide, and moves on some versions) instead of asking
-      // the desktop to repaint. Where it can't, EraseOnDesktop flushes that
-      // repaint before painting the trail, so either way the trail wins.
-      wndClass.style         = CS_SAVEBITS | CS_DBLCLKS;
+      // CS_SAVEBITS only matters for the region-shaped fallback: it lets
+      // Windows put back what was under the sprite where it can instead of
+      // asking the desktop to repaint. A layered window is composited by the
+      // system and never uncovers anything.
+      wndClass.style         = CS_SAVEBITS;
       wndClass.lpfnWndProc   = PetWndProc;
       wndClass.hInstance     = hInst;
       wndClass.hCursor       = LoadCursorW(nullptr, IDC_ARROW);
-      wndClass.hbrBackground = nullptr; // never erased: the region clips to the sprite
+      wndClass.hbrBackground = nullptr; // WM_PAINT covers every pixel itself
       wndClass.lpszClassName = kPetWndClass;
       if (RegisterClassExW(&wndClass) == 0) {
         pet::FreeSprites(&s_sprites);
@@ -106,14 +147,24 @@ namespace petwin {
     pet::VacuumInit(&s_vac, VirtualScreen(), s_sprites.size, profile.speed);
     s_eraseColor = pet::DefaultEraseColor();
 
-    s_hwnd = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW, kPetWndClass, nullptr, WS_POPUP,
-                             s_vac.pos.x, s_vac.pos.y, s_sprites.size.cx, s_sprites.size.cy,
-                             nullptr, nullptr, hInst, nullptr);
+    DWORD exStyle = WS_EX_TOPMOST | WS_EX_TOOLWINDOW;
+    if (s_layered) {
+      // WS_EX_TRANSPARENT on a layered window: every click, on every pixel,
+      // goes to whatever is underneath. The key colour makes the rest of the
+      // rectangle around the frame invisible.
+      exStyle |= WS_EX_LAYERED | WS_EX_TRANSPARENT;
+    }
+    s_hwnd =
+        CreateWindowExW(exStyle, kPetWndClass, nullptr, WS_POPUP, s_vac.pos.x, s_vac.pos.y,
+                        s_sprites.size.cx, s_sprites.size.cy, nullptr, nullptr, hInst, nullptr);
     if (s_hwnd == nullptr) {
       pet::FreeSprites(&s_sprites);
       return false;
     }
-    SetWindowRgn(s_hwnd, pet::CloneRegion(s_sprites, s_vac.facing), FALSE);
+    if (s_layered) {
+      ResolveSetLayeredWindowAttributes()(s_hwnd, kSpriteColorKey, 0, LWA_COLORKEY);
+    }
+    ApplyShape();
     ShowWindow(s_hwnd, SW_SHOWNA); // never steal focus from whatever's active
     UpdateWindow(s_hwnd);
     desktop::FindHandle();
@@ -155,7 +206,7 @@ namespace petwin {
       s_vac.size = s_sprites.size;
       SetWindowPos(s_hwnd, nullptr, 0, 0, s_sprites.size.cx, s_sprites.size.cy,
                    SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
-      SetWindowRgn(s_hwnd, pet::CloneRegion(s_sprites, s_vac.facing), TRUE);
+      ApplyShape();
     }
     pet::VacuumSetArea(&s_vac, VirtualScreen());
     s_vac.target = s_vac.pos;
@@ -169,7 +220,7 @@ namespace petwin {
   }
 
   void Tick() {
-    if (s_hwnd == nullptr || s_dragging) {
+    if (s_hwnd == nullptr) {
       return;
     }
     POINT cur;
@@ -208,14 +259,13 @@ namespace petwin {
     if (!pet::VacuumStep(&s_vac)) {
       return;
     }
-    if (s_vac.facing != was) {
-      // A turn changes the outline. Reshaping in place throws away the pixels
-      // Windows saved under us (SetWindowRgn is a frame change, not a move), so
-      // the move that follows would invalidate the desktop instead of restoring
-      // them, and explorer would repaint its wallpaper over the spot we are about
-      // to erase - a sliver of wallpaper left at every turn. Hide first: that
-      // restores the saved pixels synchronously; the reshape and move then happen
-      // off-screen; showing again saves fresh bits under the new outline.
+    if (s_vac.facing != was && !s_layered) {
+      // Fallback only. A turn changes the region, and reshaping in place
+      // throws away the pixels Windows saved under us (SetWindowRgn is a frame
+      // change, not a move), so the move that follows would invalidate the
+      // desktop instead of restoring them. Hide first: that restores the saved
+      // pixels synchronously; the reshape and move then happen off-screen;
+      // showing again saves fresh bits under the new outline.
       ShowWindow(s_hwnd, SW_HIDE);
       SetWindowRgn(s_hwnd, pet::CloneRegion(s_sprites, s_vac.facing), FALSE);
       MoveWindowTo(s_vac.pos);
@@ -223,12 +273,17 @@ namespace petwin {
       UpdateWindow(s_hwnd); // paint the new facing now, not a message-loop later
     } else {
       MoveWindowTo(s_vac.pos);
+      if (s_vac.facing != was) {
+        InvalidateRect(s_hwnd, nullptr, FALSE); // layered: just paint the new facing
+      }
     }
 
-    // Now vacuum the whole spot we just left. The desktop DC is clipped to
-    // what is visible, so the part under the sprite's new outline is skipped
-    // for free and gets erased when we move on; painting the full rect is what
-    // keeps the old frame's pixels from lingering around the new one.
+    // Now vacuum the whole spot we just left. Layered: the desktop was never
+    // disturbed by the move, and its DC isn't clipped by us, so this simply
+    // paints the trail (under the sprite too, which composites over it).
+    // Fallback: the DC is clipped to what is visible, so the part under the
+    // new outline is skipped and gets erased when we move on; painting the
+    // full rect is what keeps the old frame's pixels from lingering.
     const bool rescan = (++s_ticksSinceRescan >= kRescanEvery);
     if (rescan) {
       s_ticksSinceRescan = 0;
@@ -243,41 +298,26 @@ namespace petwin {
       case WM_PAINT: {
         PAINTSTRUCT paint;
         HDC hdc = BeginPaint(hWnd, &paint);
+        if (s_layered) {
+          // Everything the frame doesn't cover is the key colour: see-through.
+          RECT client;
+          GetClientRect(hWnd, &client);
+          pet::EraseRect(hdc, client, kSpriteColorKey);
+        }
         pet::DrawFrame(hdc, s_sprites, s_vac.facing, 0, 0);
         EndPaint(hWnd, &paint);
         return 0;
       }
       case WM_ERASEBKGND:
-        return 1; // the region clips to the sprite; there is nothing to erase
-      case WM_LBUTTONDOWN:
-        // Drag the vacuum around: hand the system's own move loop the job.
-        SendMessageW(hWnd, WM_SYSCOMMAND, SC_MOVE | 0x0002, 0);
-        return 0;
-      case WM_ENTERSIZEMOVE:
-        s_dragging = true;
-        return 0;
-      case WM_EXITSIZEMOVE: {
-        s_dragging = false;
-        RECT windowRect;
-        GetWindowRect(hWnd, &windowRect);
-        s_vac.pos.x  = std::clamp(windowRect.left, s_vac.bounds.left, s_vac.bounds.right);
-        s_vac.pos.y  = std::clamp(windowRect.top, s_vac.bounds.top, s_vac.bounds.bottom);
-        s_vac.target = s_vac.pos; // stay where dropped until the mode says otherwise
-        MoveWindowTo(s_vac.pos);
-        return 0;
-      }
-      case WM_RBUTTONUP:
-      case WM_LBUTTONDBLCLK:
-        // Bring the settings window back.
-        if (mainHwnd != nullptr) {
-          ShowWindow(mainHwnd, SW_SHOWNORMAL);
-          SetForegroundWindow(mainHwnd);
-        }
-        return 0;
+        return 1; // WM_PAINT covers every pixel; there is nothing to erase
+      case WM_NCHITTEST:
+        // Never ours to click. WS_EX_TRANSPARENT already hands the mouse to
+        // whatever is underneath on 2000+; this covers our own windows (the
+        // settings panel) in the fallback, and costs nothing elsewhere.
+        return HTTRANSPARENT;
       case WM_SYSCOMMAND:
         // Swallow close / minimize / maximize so Alt+F4 and friends can't take
-        // the sprite out from under the app; everything else (incl. our SC_MOVE)
-        // goes to the default handler.
+        // the sprite out from under the app.
         switch (wParam & 0xFFF0) {
           case SC_CLOSE:
           case SC_MINIMIZE:
