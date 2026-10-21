@@ -5,7 +5,9 @@
 #include "version.h" // Keep this at the top!
 
 // Use std::min / std::max, instead of the Win32-specific MIN/MAX.
-#define NOMINMAX
+#ifndef NOMINMAX
+ #define NOMINMAX
+#endif
 
 // On MSVC, <windows.h> defines a small subset of NTSTATUS codes, which then
 // conflict with the full set in <ntstatus.h>. WIN32_NO_STATUS suppresses those
