@@ -1,0 +1,66 @@
+# Copyright 2026 Alex313031
+
+# Vacuum screensaver, vacuums the frozen desktop top to bottom
+executable("kirby_scr") {
+  configs += [
+    ":kirby_scr_config",
+  ]
+  # scrnsave supplies a narrow WinMain, so drop -municode (which would make the
+  # CRT's startup look for wWinMain) but keep the UNICODE/_UNICODE defines.
+  configs -= [ "//build/config/win:unicode" ]
+  configs += [ "//build/config/win:unicode_base" ]
+  precompiled_header = "framework.h"
+  precompiled_source = "pch.pch"
+  sources = [
+    "framework.h",
+    "kirby_pet_scr.rc",
+    "scr_main.cc",
+    "scr_main.h",
+    "resource.h",
+    "version.h",
+  ]
+
+  # Binary resources kirby_pet_scr.rc pulls in. windres' -MMD only reports
+  # #included headers, so without these a sprite edit wouldn't rebuild the .res.
+  inputs = [
+    "../bmp/down_1x.bmp",
+    "../bmp/down_2x.bmp",
+    "../bmp/left_1x.bmp",
+    "../bmp/left_2x.bmp",
+    "../bmp/right_1x.bmp",
+    "../bmp/right_2x.bmp",
+    "../bmp/up_1x.bmp",
+    "../bmp/up_2x.bmp",
+    "res/kirby_pet_scr.manifest",
+    "res/scr.ico",
+  ]
+
+  deps = [ "../lib:pet_lib" ]
+
+  output_name = "kirby_scr"
+  if (is_debug || dcheck_enabled) {
+    output_name += "_debug"
+  }
+  # Use .scr, not .exe
+  output_extension = "scr"
+}
+
+config("kirby_scr_config") {
+  configs = [ "../lib:pet_lib_config" ]
+  defines = [ "PET_SCR" ]
+  cflags = []
+  include_dirs = [ "./", ]
+  cflags += [
+    "-Wunused-function",
+  ]
+  libs = [
+    "kernel32",
+    "user32",
+    "shell32",
+    "comctl32",
+    "comdlg32",
+    "gdi32",
+    "advapi32",  # registry (persisted speed / color)
+    "scrnsavw",  # UNICODE scrnsave: supplies WinMain + the /s /c /p protocol
+  ]
+}

@@ -1,0 +1,49 @@
+# Copyright 2026 Alex313031
+
+# Library containing vacuum sprite moving logic and other baseline
+# function primitives that both the app and screensaver use.
+static_library("pet_lib") {
+  configs += [
+    ":pet_lib_private_config",
+  ]
+  precompiled_header = "framework.h"
+  precompiled_source = "pch.pch"
+  sources = [
+    "framework.h",
+    "include/pet_lib.h",
+    "include/pet_version.h",
+    "pet.cc",
+    "pet.h",
+    "pet_lib.rc",
+    "version.h",
+  ]
+
+  output_name = "pet_lib"
+}
+
+# Private config for lib itself
+config("pet_lib_private_config") {
+  defines = [ "PET_LIB_" ]
+  cflags = []
+  include_dirs = [
+    "./",
+    "./include"
+  ]
+  cflags += [
+    "-Wunused-function",
+  ]
+  libs = [
+    "kernel32",
+    "user32",
+    "shell32",
+    "comctl32",
+    "comdlg32",
+    "gdi32",
+    "advapi32",  # RegReadDword / RegWriteDword
+  ]
+}
+
+# Public config for consumers
+config("pet_lib_config") {
+  include_dirs = [ "./include", ]
+}

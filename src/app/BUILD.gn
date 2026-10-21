@@ -1,0 +1,74 @@
+# Copyright 2026 Alex313031
+
+executable("kirby_pet") {
+  configs += [
+    ":kirby_pet_config",
+  ]
+  precompiled_header = "framework.h"
+  precompiled_source = "pch.pch"
+  sources = [
+    "constants.h",
+    "desktop.cc",
+    "desktop.h",
+    "framework.h",
+    "globals.h",
+    "kirby_pet.rc",
+    "main.cc",
+    "main.h",
+    "pet_window.cc",
+    "pet_window.h",
+    "resource.h",
+    "utils.cc",
+    "utils.h",
+    "version.h",
+  ]
+
+  # Binary resources kirby_pet.rc pulls in. windres' -MMD only reports #included
+  # headers, so without these a sprite or icon edit wouldn't rebuild the .res.
+  inputs = [
+    "../bmp/down_1x.bmp",
+    "../bmp/down_2x.bmp",
+    "../bmp/left_1x.bmp",
+    "../bmp/left_2x.bmp",
+    "../bmp/right_1x.bmp",
+    "../bmp/right_2x.bmp",
+    "../bmp/up_1x.bmp",
+    "../bmp/up_2x.bmp",
+    "res/about.ico",
+    "res/kirby_pet.manifest",
+    "res/main.ico",
+    "res/small.ico",
+  ]
+
+  deps = [
+    "../logging:kirbylogger",
+    "../lib:pet_lib"
+  ]
+
+  output_name = "kirby_pet"
+  if (is_debug || dcheck_enabled) {
+    output_name += "_debug"
+  }
+}
+
+config("kirby_pet_config") {
+  configs = [
+    "../logging:kirbylogger_config",
+    "../lib:pet_lib_config"
+  ]
+  defines = []
+  cflags = []
+  include_dirs = [ "./", ]
+  cflags += [
+    "-Wunused-function",
+  ]
+  libs = [
+    "kernel32",
+    "user32",
+    "shell32",
+    "comctl32",
+    "comdlg32",
+    "gdi32",
+    "advapi32",  # registry (persisted speed / color / mode)
+  ]
+}
