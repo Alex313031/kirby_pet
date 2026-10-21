@@ -1,10 +1,8 @@
 # Copyright 2026 Alex313031
 
-# Build all
+# Root BUILD.gn, pick up src/ targets
 group("kirby_pet_win32") {
   public_deps = [
-    "src/app:kirby_pet",
-    "src/scr:kirby_scr",
-    "src/lib:pet_lib"
+    "src:kirby_pet_all",
   ]
 }

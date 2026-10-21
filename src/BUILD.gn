@@ -1,0 +1,10 @@
+# Copyright 2026 Alex313031
+
+# Build all
+group("kirby_pet_all") {
+  public_deps = [
+    "app:kirby_pet",
+    "scr:kirby_scr",
+    "lib:pet_lib"
+  ]
+}
