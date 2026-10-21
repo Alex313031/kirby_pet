@@ -92,16 +92,18 @@ static FnGetConsoleWindow ResolveGetConsoleWindow() {
 
 // NT4 fallback: there is no documented HWND lookup for a console, but a
 // long-standing workaround is to set a unique title, FindWindowW for it,
-// then restore the original. csrss.exe processes the rename asynchronously
-// so a short Sleep gives it time to land. Cached after first success so the
-// title only flickers once per process.
+// then restore the original. csrss.exe processes the rename asynchronously,
+// so the lookup polls for it rather than trusting one fixed sleep (a loaded
+// VM can take longer). Only a SUCCESS is cached, so the title flickers once
+// per process - a miss is retried next time, which matters because the first
+// caller is GetIsConsoleAttached() sanity-checking BEFORE a console exists;
+// caching that miss would leave the console unhideable for the whole run.
 static HWND FindConsoleHwndNT4() {
-  static HWND s_cached   = nullptr;
-  static bool s_searched = false;
-  if (s_searched) {
+  static HWND s_cached = nullptr;
+  if (s_cached != nullptr && IsWindow(s_cached)) {
     return s_cached;
   }
-  s_searched = true;
+  s_cached = nullptr;
 
   wchar_t saved_title[1024];
   wchar_t unique_title[64];
@@ -111,10 +113,13 @@ static HWND FindConsoleHwndNT4() {
   swprintf(unique_title, ARRAYSIZE(unique_title), L"__console_hwnd_lookup_%lu__",
            static_cast<unsigned long>(GetCurrentProcessId()));
   if (!SetConsoleTitleW(unique_title)) {
-    return nullptr;
+    return nullptr; // no console attached (yet): nothing to find, nothing cached
   }
-  Sleep(40u); // Give csrss 40ms. to apply the rename.
-  s_cached = FindWindowW(nullptr, unique_title);
+  // Up to ~500ms in 25ms steps; csrss usually lands the rename in the first.
+  for (int attempt = 0; attempt < 20 && s_cached == nullptr; ++attempt) {
+    Sleep(25u);
+    s_cached = FindWindowW(nullptr, unique_title);
+  }
   SetConsoleTitleW(saved_title);
   return s_cached;
 }
