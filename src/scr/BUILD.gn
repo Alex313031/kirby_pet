@@ -13,7 +13,7 @@ executable("kirby_scr") {
   precompiled_source = "pch.pch"
   sources = [
     "framework.h",
-    "kirby_pet_scr.rc",
+    "kirby_scr.rc",
     "scr_main.cc",
     "scr_main.h",
     "resource.h",
@@ -31,7 +31,7 @@ executable("kirby_scr") {
     "../bmp/right_2x.bmp",
     "../bmp/up_1x.bmp",
     "../bmp/up_2x.bmp",
-    "res/kirby_pet_scr.manifest",
+    "res/kirby_scr.manifest",
     "res/scr.ico",
   ]
 
