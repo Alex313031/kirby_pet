@@ -34,9 +34,15 @@ namespace petwin {
   void SetMode(Mode mode);
   void SetEraseColor(COLORREF color);
   // true: the vacuum travels under other windows (bottom of the Z order, just
-  // above the desktop); false: it rides on top of everything (topmost).
-  void SetUnderWindows(bool under);
-  void UpdateBounds(); // call on WM_DISPLAYCHANGE
+  // above the desktop); false: it rides on top of everything (topmost). False
+  // if the window exists and Windows refused to move it in the Z order; the
+  // setting is remembered either way and applied at the next Create.
+  bool SetUnderWindows(bool under);
+  // Call on WM_DISPLAYCHANGE: re-fits the roaming area to the new screen and,
+  // if the display table wants another frame set or size for it, reloads the
+  // sprites. False if that reload or the window's new outline failed - the old
+  // frames stay in use, and LastLoadResult says what went wrong.
+  bool UpdateBounds();
 
   // One animation tick: aim per the mode, step, move the window, and vacuum
   // (erase to the color) the spot just vacated on the desktop.

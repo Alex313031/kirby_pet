@@ -91,18 +91,18 @@ static HWND MakeControl(HWND hWnd,
                         DWORD exStyle,
                         int ctrlId);
 static bool CreateChildControls(HWND hWnd);
-static void LayoutChildren(HWND hWnd);
+static bool LayoutChildren(HWND hWnd);
 static void LoadSettings(HWND hWnd);
-static void SaveSettings();
-static void ResetSettings(HWND hWnd);
+static bool SaveSettings();
+static bool ResetSettings(HWND hWnd);
 static COLORREF CurrentEraseColor();
-static void RefreshSwatch();
+static bool RefreshSwatch();
 static void ApplySettingsToPet();
 static void ApplyMode(petwin::Mode mode);
 static void UpdateSpeedLabel();
 static void PickColor(HWND hWnd);
 static bool AddTrayIcon(HWND hWnd);
-static void RemoveTrayIcon(HWND hWnd);
+static bool RemoveTrayIcon(HWND hWnd);
 static void ShowTrayMenu(HWND hWnd);
 static bool MinimizeToTray(HWND hWnd);
 static void RestoreFromTray(HWND hWnd);
@@ -233,10 +233,12 @@ static bool CreateChildControls(HWND hWnd) {
 }
 
 // Stacks the rows down the client area. Safe to call before the controls
-// exist (WM_SIZE can fire early) - it no-ops until then.
-static void LayoutChildren(HWND hWnd) {
+// exist (WM_SIZE can fire early) - it no-ops, successfully, until then. False
+// if the deferred positioning failed: nothing was moved, so every control is
+// still at zero size and the window is unusable.
+static bool LayoutChildren(HWND hWnd) {
   if (s_swatch == nullptr) {
-    return; // controls not created yet
+    return true; // controls not created yet
   }
   RECT clientRect;
   GetClientRect(hWnd, &clientRect);
@@ -293,9 +295,10 @@ static void LayoutChildren(HWND hWnd) {
     hdwp = DeferWindowPos(hdwp, s_swatch, nullptr, kPadLeft + kButtonWidth + kHGap, rowY,
                           kSwatchSize * 2, kButtonHeight, SWP_NOZORDER);
   }
-  if (hdwp != nullptr) {
-    EndDeferWindowPos(hdwp);
+  if (hdwp == nullptr) {
+    return false; // BeginDeferWindowPos or a DeferWindowPos failed
   }
+  return EndDeferWindowPos(hdwp) != FALSE;
 }
 
 /* ------------------------------- Settings --------------------------------- */
@@ -304,21 +307,33 @@ static COLORREF CurrentEraseColor() {
   return pet::EffectiveEraseColor(s_erase);
 }
 
-static void RefreshSwatch() {
+// Rebuilds the swatch brush for the effective erase colour and repaints the
+// swatch. False, with a warning logged, if GDI refused the brush: the old one
+// stays, so the swatch keeps showing the previous colour rather than nothing.
+static bool RefreshSwatch() {
+  HBRUSH brush = CreateSolidBrush(CurrentEraseColor());
+  if (brush == nullptr) {
+    LOG(WARN) << L"Could not create the erase colour swatch brush";
+    return false;
+  }
   if (s_swatchBrush != nullptr) {
     DeleteObject(s_swatchBrush);
   }
-  s_swatchBrush = CreateSolidBrush(CurrentEraseColor());
+  s_swatchBrush = brush;
   if (s_swatch != nullptr) {
     InvalidateRect(s_swatch, nullptr, TRUE);
   }
+  return true;
 }
 
 static void ApplySettingsToPet() {
   petwin::SetSpeed(static_cast<int>(SendMessageW(s_speedSlider, TBM_GETPOS, 0, 0)));
   petwin::SetMode(s_mode);
   petwin::SetEraseColor(CurrentEraseColor());
-  petwin::SetUnderWindows(s_underWindows);
+  if (!petwin::SetUnderWindows(s_underWindows)) {
+    LOG(WARN) << L"Could not move the vacuum " << (s_underWindows ? L"under" : L"over")
+              << L" the other windows";
+  }
 }
 
 // Keeps the two checkboxes mutually exclusive and pushes the mode to the pet.
@@ -384,30 +399,40 @@ static void LoadSettings(HWND hWnd) {
   s_settingsLoaded = true;
 }
 
-static void SaveSettings() {
+// Writes every setting back to the registry. False if any value failed to
+// write; the rest are still attempted, so one bad value costs only itself.
+static bool SaveSettings() {
   if (!s_settingsLoaded) {
-    return; // nothing was ever loaded into the controls, so nothing to write back
+    return true; // nothing was ever loaded into the controls, so nothing to write back
   }
   s_erase.speed = static_cast<int>(SendMessageW(s_speedSlider, TBM_GETPOS, 0, 0));
-  pet::SaveEraseSettings(kRegSubkey, s_erase);
-  pet::RegWriteDword(kRegSubkey, kRegMode, static_cast<DWORD>(s_mode));
-  pet::RegWriteDword(kRegSubkey, kRegUnderWindows, s_underWindows ? 1u : 0u);
-  pet::RegWriteDword(kRegSubkey, kRegTray, tray_mode ? 1u : 0u);
+  bool saved    = pet::SaveEraseSettings(kRegSubkey, s_erase);
+  saved         = pet::RegWriteDword(kRegSubkey, kRegMode, static_cast<DWORD>(s_mode)) && saved;
+  saved         = pet::RegWriteDword(kRegSubkey, kRegUnderWindows, s_underWindows ? 1u : 0u) && saved;
+  saved         = pet::RegWriteDword(kRegSubkey, kRegTray, tray_mode ? 1u : 0u) && saved;
+  return saved;
 }
 
 // Settings -> Reset Settings. Wipes what is saved, then reloads so every
 // default lands at once - the display table's speed for this screen, follow
 // mode, on top of other windows, erase to the desktop colour, no tray - on
-// the controls, in the menu, and in the pet. The defaults get saved again on the way out as usual.
-static void ResetSettings(HWND hWnd) {
+// the controls, in the menu, and in the pet. The defaults get saved again on
+// the way out as usual. True if the settings were reset; false if the user
+// declined, or the wipe failed (told to the user here) and nothing changed.
+static bool ResetSettings(HWND hWnd) {
   if (MessageBoxW(hWnd, L"Reset all settings to their defaults?", L"Reset Settings",
                   MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) != IDYES) {
-    return;
+    return false;
   }
-  pet::RegDeleteSubkey(kRegSubkey);
+  if (!pet::RegDeleteSubkey(kRegSubkey)) {
+    LOG(WARN) << L"Could not delete the saved settings";
+    WarnBox(hWnd, L"Reset Settings",
+            L"The saved settings could not be removed, so nothing was reset.");
+    return false;
+  }
   LoadSettings(hWnd);
   ApplySettingsToPet();
-  LOG(INFO) << L"Settings reset to defaults";
+  return true;
 }
 
 /* --------------------------------- Tray ----------------------------------- */
@@ -430,16 +455,20 @@ static bool AddTrayIcon(HWND hWnd) {
   return Shell_NotifyIconW(NIM_ADD, &nid) != FALSE;
 }
 
-static void RemoveTrayIcon(HWND hWnd) {
+// False if the shell refused to take the icon back. s_inTray is cleared either
+// way: the next minimize must add the icon afresh rather than hide the window
+// trusting one that may no longer be there.
+static bool RemoveTrayIcon(HWND hWnd) {
   if (!s_inTray) {
-    return;
+    return true; // nothing to remove
   }
   NOTIFYICONDATAW nid = {};
   nid.cbSize          = NOTIFYICONDATAW_V1_SIZE; // see AddTrayIcon
   nid.hWnd            = hWnd;
   nid.uID             = kTrayIconId;
-  Shell_NotifyIconW(NIM_DELETE, &nid);
-  s_inTray = false;
+  const bool removed  = Shell_NotifyIconW(NIM_DELETE, &nid) != FALSE;
+  s_inTray            = false;
+  return removed;
 }
 
 static void ShowTrayMenu(HWND hWnd) {
@@ -480,7 +509,9 @@ static bool MinimizeToTray(HWND hWnd) {
 static void RestoreFromTray(HWND hWnd) {
   ShowWindow(hWnd, SW_SHOWNORMAL);
   SetForegroundWindow(hWnd);
-  RemoveTrayIcon(hWnd);
+  if (!RemoveTrayIcon(hWnd)) {
+    LOG(WARN) << L"Could not remove the tray icon";
+  }
 }
 
 /* ------------------------------- Functions -------------------------------- */
@@ -665,7 +696,10 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
         LOG(ERROR) << L"Failed to create child controls!";
         return -1;
       }
-      LayoutChildren(hWnd);
+      if (!LayoutChildren(hWnd)) {
+        LOG(ERROR) << L"Failed to lay out the child controls!";
+        return -1;
+      }
       LoadSettings(hWnd);
       if (!InitApp(hWnd)) {
         return -1;
@@ -698,7 +732,10 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
       }
       return DefWindowProcW(hWnd, message, wParam, lParam);
     case WM_DISPLAYCHANGE:
-      petwin::UpdateBounds();
+      if (!petwin::UpdateBounds()) {
+        LOG(WARN) << L"Could not refit the vacuum to the new display: "
+                  << pet::LoadResultText(petwin::LastLoadResult());
+      }
       break;
     case WM_SIZE:
       if (wParam == SIZE_MINIMIZED && tray_mode && !s_minimizeIsFallback) {
@@ -732,9 +769,13 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
           break;
         case IDC_UNDERWINDOWS:
           s_underWindows = (IsDlgButtonChecked(hWnd, IDC_UNDERWINDOWS) == BST_CHECKED);
-          petwin::SetUnderWindows(s_underWindows);
-          LOG(INFO) << L"Vacuum travels " << (s_underWindows ? L"under" : L"over")
-                    << L" other windows";
+          if (petwin::SetUnderWindows(s_underWindows)) {
+            LOG(INFO) << L"Vacuum travels " << (s_underWindows ? L"under" : L"over")
+                      << L" other windows";
+          } else {
+            LOG(WARN) << L"Could not move the vacuum " << (s_underWindows ? L"under" : L"over")
+                      << L" the other windows";
+          }
           break;
         case IDC_DESKTOPCOLOR:
           s_erase.useDesktopColor = (IsDlgButtonChecked(hWnd, IDC_DESKTOPCOLOR) == BST_CHECKED);
@@ -750,7 +791,9 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
           LOG(INFO) << L"Minimize to tray " << (tray_mode ? L"on" : L"off");
           break;
         case IDM_RESET:
-          ResetSettings(hWnd);
+          if (ResetSettings(hWnd)) {
+            LOG(INFO) << L"Settings reset to defaults";
+          }
           break;
         case IDM_SHOW:
           RestoreFromTray(hWnd);
@@ -793,14 +836,21 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
       // The session really is ending. The process is killed after this and
       // WM_DESTROY never comes, so persist now or lose this session's changes.
       if (wParam) {
-        SaveSettings();
-        LOG(INFO) << L"Settings saved for session end";
+        if (SaveSettings()) {
+          LOG(INFO) << L"Settings saved for session end";
+        } else {
+          LOG(WARN) << L"Could not save the settings for session end";
+        }
       }
       return 0;
     case WM_DESTROY:
       KillTimer(hWnd, kTickTimerId);
-      SaveSettings();
-      RemoveTrayIcon(hWnd);
+      if (!SaveSettings()) {
+        LOG(WARN) << L"Could not save the settings";
+      }
+      if (!RemoveTrayIcon(hWnd)) {
+        LOG(WARN) << L"Could not remove the tray icon";
+      }
       petwin::Destroy();
       if (s_swatchBrush != nullptr) {
         DeleteObject(s_swatchBrush);

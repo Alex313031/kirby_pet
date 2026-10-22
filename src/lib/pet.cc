@@ -518,35 +518,44 @@ namespace pet {
 
   /* ------------------------------- Drawing ---------------------------------- */
 
-  void DrawFrame(HDC hdc, const Sprites& sprites, Dir dir, int posX, int posY) {
+  bool DrawFrame(HDC hdc, const Sprites& sprites, Dir dir, int posX, int posY) {
     if (hdc == nullptr || sprites.memDC == nullptr || dir < 0 || dir >= DIR_COUNT ||
         sprites.mask[dir] == nullptr || sprites.opaque[dir] == nullptr) {
-      return;
+      return false;
     }
     // AND the mask on (clears the frame's opaque pixels to black, leaves the
     // rest of the destination alone), then OR the frame on (fills exactly that
     // black with the sprite). BitBlt honours whatever clip the DC already has.
     HGDIOBJ previous = SelectObject(sprites.memDC, sprites.mask[dir]);
-    BitBlt(hdc, posX, posY, sprites.size.cx, sprites.size.cy, sprites.memDC, 0, 0, SRCAND);
+    if (previous == nullptr) {
+      return false; // the memory DC wouldn't take the mask; nothing was drawn
+    }
+    bool drawn =
+        BitBlt(hdc, posX, posY, sprites.size.cx, sprites.size.cy, sprites.memDC, 0, 0, SRCAND) !=
+        FALSE;
     SelectObject(sprites.memDC, sprites.opaque[dir]);
-    BitBlt(hdc, posX, posY, sprites.size.cx, sprites.size.cy, sprites.memDC, 0, 0, SRCPAINT);
+    drawn = BitBlt(hdc, posX, posY, sprites.size.cx, sprites.size.cy, sprites.memDC, 0, 0,
+                   SRCPAINT) != FALSE &&
+            drawn;
     SelectObject(sprites.memDC, previous);
+    return drawn;
   }
 
-  void DrawVacuum(HDC hdc, const Sprites& sprites, const Vacuum& vacuum) {
-    DrawFrame(hdc, sprites, vacuum.facing, vacuum.pos.x, vacuum.pos.y);
+  bool DrawVacuum(HDC hdc, const Sprites& sprites, const Vacuum& vacuum) {
+    return DrawFrame(hdc, sprites, vacuum.facing, vacuum.pos.x, vacuum.pos.y);
   }
 
-  void EraseRect(HDC hdc, const RECT& rect, COLORREF color) {
+  bool EraseRect(HDC hdc, const RECT& rect, COLORREF color) {
     if (hdc == nullptr) {
-      return;
+      return false;
     }
     HBRUSH brush = CreateSolidBrush(color);
     if (brush == nullptr) {
-      return;
+      return false;
     }
-    FillRect(hdc, &rect, brush);
+    const bool filled = FillRect(hdc, &rect, brush) != 0;
     DeleteObject(brush);
+    return filled;
   }
 
   COLORREF DefaultEraseColor() {

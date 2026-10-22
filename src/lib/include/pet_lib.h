@@ -168,15 +168,18 @@ namespace pet {
   // Blits the facing frame at `pos` onto `hdc`, transparent pixels left alone.
   // Two BitBlts (mask, then frame), no regions, no per-call GDI objects.
   // Correct on any DC, so the screensaver can composite onto a back buffer.
-  void DrawVacuum(HDC hdc, const Sprites& sprites, const Vacuum& vacuum);
+  // False if the sprites aren't loaded, the facing is out of range, or GDI
+  // refused a blit.
+  bool DrawVacuum(HDC hdc, const Sprites& sprites, const Vacuum& vacuum);
 
   // Blits frame `dir` with its top-left at (posX, posY), transparent pixels
   // left alone. DrawVacuum is this at the vacuum's position; a window that is
-  // the sprite paints with (0, 0).
-  void DrawFrame(HDC hdc, const Sprites& sprites, Dir dir, int posX, int posY);
+  // the sprite paints with (0, 0). Same false cases as DrawVacuum.
+  bool DrawFrame(HDC hdc, const Sprites& sprites, Dir dir, int posX, int posY);
 
-  // Fills `rect` with a solid color: the "vacuumed clean" eraser.
-  void EraseRect(HDC hdc, const RECT& rect, COLORREF color);
+  // Fills `rect` with a solid color: the "vacuumed clean" eraser. False if
+  // there is no DC, or GDI refused the brush or the fill.
+  bool EraseRect(HDC hdc, const RECT& rect, COLORREF color);
 
   // The color both consumers erase to unless the user picked one: the desktop
   // background (COLOR_DESKTOP), read live so a theme change tracks.

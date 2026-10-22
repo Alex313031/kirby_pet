@@ -100,12 +100,12 @@ namespace desktop {
     return s_desktop;
   }
 
-  void EraseOnDesktop(const RECT& screenRect, COLORREF color, bool rescan) {
+  bool EraseOnDesktop(const RECT& screenRect, COLORREF color, bool rescan) {
     if (rescan || s_desktop == nullptr || !IsWindow(s_desktop)) {
       FindHandle();
     }
     if (s_desktop == nullptr) {
-      return;
+      return false;
     }
 
     // Moving the sprite just uncovered a strip of desktop, and Windows
@@ -123,12 +123,13 @@ namespace desktop {
     const RECT clientRect = ToClient(screenRect);
     HDC hdc               = GetDC(s_desktop);
     if (hdc == nullptr) {
-      return;
+      return false;
     }
     // The DC is clipped to what is visible, so the sprite's own outline (it is
     // topmost) is skipped automatically; everything else in the rect is ours.
-    pet::EraseRect(hdc, clientRect, color);
+    const bool filled = pet::EraseRect(hdc, clientRect, color);
     ReleaseDC(s_desktop, hdc);
+    return filled;
   }
 
   void Restore() {

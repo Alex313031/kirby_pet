@@ -86,7 +86,7 @@ static void StartPass(bool firstPass);
 static bool NextLeg();
 static void PaintFootprint(const RECT& rect);
 static void Tick(HWND hWnd);
-static void CreateCanvas(HWND hWnd);
+static bool CreateCanvas(HWND hWnd);
 static void DestroyCanvas();
 static void LoadSettings(int defaultSpeed);
 static void StartSound();
@@ -294,7 +294,13 @@ static void Tick(HWND hWnd) {
 
 /* --------------------------------- Canvas --------------------------------- */
 
-static void CreateCanvas(HWND hWnd) {
+// Builds the back buffer the saver draws into and the pristine copy the
+// painting passes restore from, then snapshots the live screen into both.
+// False if any of the DCs or bitmaps could not be made - nothing is left
+// half-built, and there is no saver without a canvas. The snapshot blits are
+// best effort: if one fails the canvas just starts with whatever GDI left in
+// it, which the sweep cleans up like anything else.
+static bool CreateCanvas(HWND hWnd) {
   RECT clientRect;
   GetClientRect(hWnd, &clientRect);
   s_canvasWidth  = clientRect.right - clientRect.left;
@@ -305,31 +311,35 @@ static void CreateCanvas(HWND hWnd) {
   // the whole primary screen is stretched into it.
   HDC screen = GetDC(nullptr);
   if (screen == nullptr) {
-    return;
+    return false;
   }
   s_canvasDC   = CreateCompatibleDC(screen);
   s_pristineDC = CreateCompatibleDC(screen);
   s_canvas     = CreateCompatibleBitmap(screen, s_canvasWidth, s_canvasHeight);
   s_pristine   = CreateCompatibleBitmap(screen, s_canvasWidth, s_canvasHeight);
-  if (s_canvasDC != nullptr && s_pristineDC != nullptr && s_canvas != nullptr &&
-      s_pristine != nullptr) {
-    s_canvasOld   = static_cast<HBITMAP>(SelectObject(s_canvasDC, s_canvas));
-    s_pristineOld = static_cast<HBITMAP>(SelectObject(s_pristineDC, s_pristine));
-    if (fChildPreview) {
-      StretchBlt(s_canvasDC, 0, 0, s_canvasWidth, s_canvasHeight, screen, 0, 0,
-                 GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN), SRCCOPY);
-    } else {
-      // Copy from where the window actually sits: the screen DC's origin is the
-      // primary monitor's top-left, so a saver window spanning a virtual screen
-      // with a monitor left of/above the primary starts at negative coordinates.
-      RECT win;
-      GetWindowRect(hWnd, &win);
-      BitBlt(s_canvasDC, 0, 0, s_canvasWidth, s_canvasHeight, screen, win.left, win.top, SRCCOPY);
-    }
-    // The untouched copy the painting passes draw from.
-    BitBlt(s_pristineDC, 0, 0, s_canvasWidth, s_canvasHeight, s_canvasDC, 0, 0, SRCCOPY);
+  if (s_canvasDC == nullptr || s_pristineDC == nullptr || s_canvas == nullptr ||
+      s_pristine == nullptr) {
+    ReleaseDC(nullptr, screen);
+    DestroyCanvas(); // whatever did get made
+    return false;
   }
+  s_canvasOld   = static_cast<HBITMAP>(SelectObject(s_canvasDC, s_canvas));
+  s_pristineOld = static_cast<HBITMAP>(SelectObject(s_pristineDC, s_pristine));
+  if (fChildPreview) {
+    StretchBlt(s_canvasDC, 0, 0, s_canvasWidth, s_canvasHeight, screen, 0, 0,
+               GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN), SRCCOPY);
+  } else {
+    // Copy from where the window actually sits: the screen DC's origin is the
+    // primary monitor's top-left, so a saver window spanning a virtual screen
+    // with a monitor left of/above the primary starts at negative coordinates.
+    RECT win;
+    GetWindowRect(hWnd, &win);
+    BitBlt(s_canvasDC, 0, 0, s_canvasWidth, s_canvasHeight, screen, win.left, win.top, SRCCOPY);
+  }
+  // The untouched copy the painting passes draw from.
+  BitBlt(s_pristineDC, 0, 0, s_canvasWidth, s_canvasHeight, s_canvasDC, 0, 0, SRCCOPY);
   ReleaseDC(nullptr, screen);
+  return true;
 }
 
 static void DestroyCanvas() {
@@ -440,7 +450,9 @@ static INT_PTR CALLBACK AboutDlgProc(HWND hDlg, UINT message, WPARAM wParam, LPA
 LRESULT WINAPI ScreenSaverProcW(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
   switch (message) {
     case WM_CREATE: {
-      CreateCanvas(hWnd);
+      if (!CreateCanvas(hWnd)) {
+        return -1; // no back buffer, no saver: creation fails and we are torn down
+      }
       // The display table picks the frame set, the size to scale it to and the
       // default speed from the height we are drawing into: the real screen for
       // /s, the tiny Display Properties monitor for /p (its smallest row).

@@ -38,6 +38,9 @@ namespace petwin {
   static bool s_classRegistered = false;
   static int s_ticksSinceRescan = 0;
   static const int kRescanEvery = 50; // re-find the desktop window this often (ticks)
+  // True from a tick whose desktop erase failed until one succeeds: the first
+  // failure forces a re-find on the next tick, later ones in the run don't.
+  static bool s_eraseFailing = false;
 
   // Which kind of window the sprite is. Layered (2000+): colour-keyed, so the
   // outline is per pixel, and WS_EX_TRANSPARENT makes the whole thing
@@ -64,9 +67,9 @@ namespace petwin {
   static FnSetLayeredWindowAttributes ResolveSetLayeredWindowAttributes();
   static RECT VirtualScreen();
   static void MoveWindowTo(const POINT& pos);
-  static void ApplyZOrder();
+  static bool ApplyZOrder();
   static bool LoadForProfile(const pet::DisplayProfile& profile);
-  static void ApplyShape();
+  static bool ApplyShape(bool redraw);
   static LRESULT CALLBACK PetWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);
 
   /* ---------------------------- Static Functions ---------------------------- */
@@ -125,20 +128,31 @@ namespace petwin {
   // over the wallpaper and icons. HWND_TOPMOST puts the status back. Every
   // move after this is SWP_NOZORDER, so the position sticks; being shown
   // with SW_SHOWNA (the NT4 turn path) keeps it too.
-  static void ApplyZOrder() {
-    SetWindowPos(s_hwnd, s_underWindows ? HWND_BOTTOM : HWND_TOPMOST, 0, 0, 0, 0,
-                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+  static bool ApplyZOrder() {
+    return SetWindowPos(s_hwnd, s_underWindows ? HWND_BOTTOM : HWND_TOPMOST, 0, 0, 0, 0,
+                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE) != FALSE;
   }
 
-  // Gives the window the current facing's outline. Layered: nothing to do, the
-  // colour key shapes it per pixel at paint time. Fallback: the window region,
-  // which SetWindowRgn takes ownership of, hence the fresh clone.
-  static void ApplyShape() {
+  // Gives the window the current facing's outline. Layered: nothing to do but
+  // repaint, the colour key shapes it per pixel at paint time. Fallback: the
+  // window region, which SetWindowRgn takes ownership of, hence the fresh
+  // clone; `redraw` is its repaint flag (off while the window is hidden).
+  // False, with the window's outline left as it was, if there was no region to
+  // give it - a null region would strip the outline and show the sprite as
+  // its full rectangle - or Windows refused it.
+  static bool ApplyShape(bool redraw) {
     if (s_layered) {
-      InvalidateRect(s_hwnd, nullptr, FALSE);
-    } else {
-      SetWindowRgn(s_hwnd, pet::CloneRegion(s_sprites, s_vac.facing), TRUE);
+      return !redraw || InvalidateRect(s_hwnd, nullptr, FALSE) != FALSE;
     }
+    HRGN region = pet::CloneRegion(s_sprites, s_vac.facing);
+    if (region == nullptr) {
+      return false;
+    }
+    if (SetWindowRgn(s_hwnd, region, redraw ? TRUE : FALSE) == 0) {
+      DeleteObject(region); // still ours: ownership only passes on success
+      return false;
+    }
+    return true;
   }
 
   /* ------------------------------- Functions -------------------------------- */
@@ -201,8 +215,18 @@ namespace petwin {
     if (s_layered) {
       ResolveSetLayeredWindowAttributes()(s_hwnd, kSpriteColorKey, 0, LWA_COLORKEY);
     }
-    ApplyShape();
-    ApplyZOrder();                 // settle under the windows, if asked, before first showing
+    if (!ApplyShape(/*redraw=*/true)) {
+      // A sprite with no outline would be a rectangle: not worth showing.
+      DestroyWindow(s_hwnd);
+      s_hwnd = nullptr;
+      pet::FreeSprites(&s_sprites);
+      s_lastLoad = pet::LOAD_REGION_FAILED;
+      return false;
+    }
+    // Settle under the windows, if asked, before first showing. Not checked
+    // here: the app pushes the setting again right after Create, and that call
+    // reports a refusal.
+    ApplyZOrder();
     ShowWindow(s_hwnd, SW_SHOWNA); // never steal focus from whatever's active
     UpdateWindow(s_hwnd);
     desktop::FindHandle();
@@ -233,31 +257,40 @@ namespace petwin {
     s_eraseColor = color;
   }
 
-  void SetUnderWindows(bool under) {
+  bool SetUnderWindows(bool under) {
     s_underWindows = under;
-    if (s_hwnd != nullptr) {
-      ApplyZOrder();
+    if (s_hwnd == nullptr) {
+      return true; // remembered; Create applies it
     }
+    return ApplyZOrder();
   }
 
-  void UpdateBounds() {
+  bool UpdateBounds() {
     // The new resolution may sit on a different display-table row. If that
     // row wants another frame set or size, reload and re-fit the window to it;
     // the user's speed is theirs and stays.
+    bool refitted                      = true;
     const pet::DisplayProfile& profile = ScreenProfile();
     if (s_hwnd != nullptr && s_profile != nullptr &&
-        (profile.set != s_profile->set || profile.spriteSize != s_profile->spriteSize) &&
-        LoadForProfile(profile)) {
-      s_vac.size = s_sprites.size;
-      SetWindowPos(s_hwnd, nullptr, 0, 0, s_sprites.size.cx, s_sprites.size.cy,
-                   SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
-      ApplyShape();
+        (profile.set != s_profile->set || profile.spriteSize != s_profile->spriteSize)) {
+      if (LoadForProfile(profile)) {
+        s_vac.size = s_sprites.size;
+        SetWindowPos(s_hwnd, nullptr, 0, 0, s_sprites.size.cx, s_sprites.size.cy,
+                     SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+        refitted = ApplyShape(/*redraw=*/true);
+        if (!refitted) {
+          s_lastLoad = pet::LOAD_REGION_FAILED; // the frames loaded; their outline didn't take
+        }
+      } else {
+        refitted = false; // LoadForProfile recorded why; the old frames stay in use
+      }
     }
     pet::VacuumSetArea(&s_vac, VirtualScreen());
     s_vac.target = s_vac.pos;
     if (s_hwnd != nullptr) {
       MoveWindowTo(s_vac.pos);
     }
+    return refitted;
   }
 
   HWND Handle() {
@@ -323,7 +356,10 @@ namespace petwin {
       // pixels synchronously; the reshape and move then happen off-screen;
       // showing again saves fresh bits under the new outline.
       ShowWindow(s_hwnd, SW_HIDE);
-      SetWindowRgn(s_hwnd, pet::CloneRegion(s_sprites, s_vac.facing), FALSE);
+      // Not checked: on a refusal the old facing's outline stays for this
+      // turn, which the next turn retries; nothing better to do twenty times
+      // a second.
+      ApplyShape(/*redraw=*/false);
       MoveWindowTo(s_vac.pos);
       ShowWindow(s_hwnd, SW_SHOWNA);
       UpdateWindow(s_hwnd); // paint the new facing now, not a message-loop later
@@ -344,7 +380,16 @@ namespace petwin {
     if (rescan) {
       s_ticksSinceRescan = 0;
     }
-    desktop::EraseOnDesktop(vacated, s_eraseColor, rescan);
+    if (desktop::EraseOnDesktop(vacated, s_eraseColor, rescan)) {
+      s_eraseFailing = false;
+    } else if (!s_eraseFailing) {
+      // The desktop window we had may be stale (Explorer restarting): re-find
+      // it on the next tick rather than in up to kRescanEvery of them. Once
+      // per run of failures, so a shell that is really gone doesn't cost an
+      // EnumWindows every tick.
+      s_eraseFailing     = true;
+      s_ticksSinceRescan = kRescanEvery;
+    }
   }
 
   /* ---------------------------- Window procedure ---------------------------- */
