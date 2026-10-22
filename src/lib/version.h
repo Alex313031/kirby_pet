@@ -12,7 +12,7 @@
 // Adhere to semver -> semver.org
 #define MAJOR_VERSION 0
 #define MINOR_VERSION 0
-#define BUILD_VERSION 2
+#define BUILD_VERSION 3
 
 #define VERSION_STRING  _VERSION(MAJOR_VERSION, MINOR_VERSION, BUILD_VERSION) // L"0.0.2"
 
@@ -20,10 +20,10 @@
 // into the composite literals below; see app/version.h for why.
 #define INTERNAL_TOKENS pet_lib
 
-#define FILE_DESCRIPT   L"Desktop Pet Library" // File description
-#define INTERNAL_NAME   WIDEN(STRINGIZE(INTERNAL_TOKENS)) // L"pet_lib"
-#define ORIG_FILENAME   WIDEN(STRINGIZE(INTERNAL_TOKENS.lib)) // L"pet_lib.lib"
-#define PRODUCT_NAME    INTERNAL_NAME // Product name
+#define FILE_DESCRIPT L"Desktop Pet Library" // File description
+#define INTERNAL_NAME WIDEN(STRINGIZE(INTERNAL_TOKENS)) // L"pet_lib"
+#define ORIG_FILENAME WIDEN(STRINGIZE(INTERNAL_TOKENS.lib)) // L"pet_lib.lib"
+#define PRODUCT_NAME  INTERNAL_NAME // Product name
 
 #ifndef VS_FF_RELEASE
  #define VS_FF_RELEASE 0x00000000L

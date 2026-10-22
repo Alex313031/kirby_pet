@@ -23,22 +23,68 @@ namespace pet {
       {2160, SPRITE_2X, 128, 18}, {std::numeric_limits<int>::max(), SPRITE_2X, 128, 20},
   };
 
+  // Registry value names for EraseSettings. Both consumers used these very
+  // names before the settings moved in here, so nothing saved is orphaned.
+  static const wchar_t kRegSpeed[]      = L"Speed";
+  static const wchar_t kRegEraseColor[] = L"EraseColor";
+  static const wchar_t kRegUseDesktop[] = L"UseDesktopColor";
+
   /* -------------------------- Forward declarations -------------------------- */
 
   static HBITMAP LoadBitmap(HINSTANCE hInst, const int resId);
+  static HBITMAP CreateDib32(int width, int height, void** bits, int* stride);
   static HBITMAP ScaleDib(HBITMAP source, int targetHeight);
+  static bool BuildBlitPair(HBITMAP frame, HBITMAP* mask, HBITMAP* opaque);
   static std::wstring RegPath(const wchar_t* subkey);
 
   /* ---------------------------- Static Functions ---------------------------- */
+
+  static HBITMAP LoadBitmap(HINSTANCE hInst, const int resId) {
+    if (hInst == nullptr || resId == -1) {
+      return nullptr;
+    }
+    return static_cast<HBITMAP>(
+        LoadImageW(hInst, MAKEINTRESOURCEW(resId), IMAGE_BITMAP, 0, 0, LR_CREATEDIBSECTION));
+  }
+
+  // A fresh bottom-up 32-bpp BI_RGB DIB section - the exact layout LoadImage
+  // gives the native frames, so nothing downstream (the region builder, the
+  // blits, GetObject's idea of orientation) sees anything it hasn't already
+  // handled. Created against a real screen DC rather than NULL: allowed
+  // either way for DIB_RGB_COLORS, but the DC form is the one every GDI since
+  // 95 has seen. Returns the bits and GDI's own stride through the pointers.
+  static HBITMAP CreateDib32(int width, int height, void** bits, int* stride) {
+    BITMAPINFO info              = {};
+    info.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
+    info.bmiHeader.biWidth       = width;
+    info.bmiHeader.biHeight      = height; // positive: bottom-up
+    info.bmiHeader.biPlanes      = 1;
+    info.bmiHeader.biBitCount    = 32;
+    info.bmiHeader.biCompression = BI_RGB;
+    *bits                        = nullptr;
+    HDC screen                   = GetDC(nullptr);
+    HBITMAP target = CreateDIBSection(screen, &info, DIB_RGB_COLORS, bits, nullptr, 0);
+    if (screen != nullptr) {
+      ReleaseDC(nullptr, screen);
+    }
+    DIBSECTION section = {};
+    if (target == nullptr || *bits == nullptr ||
+        GetObjectW(target, sizeof(section), &section) != static_cast<int>(sizeof(section))) {
+      if (target != nullptr) {
+        DeleteObject(target);
+      }
+      return nullptr;
+    }
+    *stride = section.dsBm.bmWidthBytes;
+    return target;
+  }
 
   // Nearest-neighbour resample of a 32-bpp DIB section to `targetHeight`
   // pixels tall, width in proportion. Done by hand rather than with StretchBlt
   // so every pixel is copied whole - alpha byte included - and nothing is
   // filtered: the sprites are hard-edged pixel art and must stay that way at
-  // any size. The result is a bottom-up 32-bpp BI_RGB DIB section, the same
-  // layout LoadImage gives the native frames, so nothing downstream (the
-  // region builder, the blit, GetObject's idea of orientation) sees anything
-  // it hasn't already handled. The caller owns it.
+  // any size. Both buffers are addressed by visual row (0 = top) and mapped to
+  // their storage row explicitly, so neither orientation is assumed.
   static HBITMAP ScaleDib(HBITMAP source, int targetHeight) {
     DIBSECTION src = {};
     if (GetObjectW(source, sizeof(src), &src) != static_cast<int>(sizeof(src)) ||
@@ -50,37 +96,16 @@ namespace pet {
     const int dstHeight = targetHeight;
     const int dstWidth  = std::max(1, srcWidth * targetHeight / srcHeight);
 
-    BITMAPINFO info              = {};
-    info.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
-    info.bmiHeader.biWidth       = dstWidth;
-    info.bmiHeader.biHeight      = dstHeight; // positive: bottom-up, like every native frame
-    info.bmiHeader.biPlanes      = 1;
-    info.bmiHeader.biBitCount    = 32;
-    info.bmiHeader.biCompression = BI_RGB;
-    void* dstBits                = nullptr;
-    // Against a real screen DC rather than NULL: allowed either way for
-    // DIB_RGB_COLORS, but the DC form is the one every GDI since 95 has seen.
-    HDC screen     = GetDC(nullptr);
-    HBITMAP target = CreateDIBSection(screen, &info, DIB_RGB_COLORS, &dstBits, nullptr, 0);
-    if (screen != nullptr) {
-      ReleaseDC(nullptr, screen);
-    }
-    DIBSECTION dst = {};
-    if (target == nullptr || dstBits == nullptr ||
-        GetObjectW(target, sizeof(dst), &dst) != static_cast<int>(sizeof(dst))) {
-      if (target != nullptr) {
-        DeleteObject(target);
-      }
+    void* dstBits  = nullptr;
+    int dstStride  = 0;
+    HBITMAP target = CreateDib32(dstWidth, dstHeight, &dstBits, &dstStride);
+    if (target == nullptr) {
       return nullptr;
     }
-
-    // Both buffers are addressed by visual row (0 = top) and mapped to their
-    // storage row explicitly, so neither orientation is assumed anywhere.
     const BYTE* srcBase    = static_cast<const BYTE*>(src.dsBm.bmBits);
     const int srcStride    = src.dsBm.bmWidthBytes;
     const bool srcBottomUp = src.dsBmih.biHeight > 0;
     BYTE* dstBase          = static_cast<BYTE*>(dstBits);
-    const int dstStride    = dst.dsBm.bmWidthBytes; // GDI's own stride, not assumed
     for (int dstY = 0; dstY < dstHeight; ++dstY) {
       const int srcY      = dstY * srcHeight / dstHeight;
       const int srcRow    = srcBottomUp ? (srcHeight - 1 - srcY) : srcY;
@@ -95,12 +120,58 @@ namespace pet {
     return target;
   }
 
-  static HBITMAP LoadBitmap(HINSTANCE hInst, const int resId) {
-    if (hInst == nullptr || resId == -1) {
-      return nullptr;
+  // The two halves of the classic two-blit transparent draw, built once from
+  // a frame's alpha: `mask` is white where the frame is transparent and black
+  // where it is opaque (AND it onto the destination to punch the hole), and
+  // `opaque` is the frame with its transparent pixels blacked out (OR it on to
+  // fill the hole). 32-bpp rather than 1-bpp for the mask so the blit never
+  // depends on the destination DC's text/background colours.
+  static bool BuildBlitPair(HBITMAP frame, HBITMAP* mask, HBITMAP* opaque) {
+    DIBSECTION src = {};
+    *mask          = nullptr;
+    *opaque        = nullptr;
+    if (GetObjectW(frame, sizeof(src), &src) != static_cast<int>(sizeof(src)) ||
+        src.dsBm.bmBits == nullptr || src.dsBm.bmBitsPixel != 32) {
+      return false;
     }
-    return static_cast<HBITMAP>(
-        LoadImageW(hInst, MAKEINTRESOURCEW(resId), IMAGE_BITMAP, 0, 0, LR_CREATEDIBSECTION));
+    const int width  = src.dsBm.bmWidth;
+    const int height = src.dsBm.bmHeight;
+    void* maskBits   = nullptr;
+    void* opaqueBits = nullptr;
+    int maskStride   = 0;
+    int opaqueStride = 0;
+    *mask            = CreateDib32(width, height, &maskBits, &maskStride);
+    *opaque          = CreateDib32(width, height, &opaqueBits, &opaqueStride);
+    if (*mask == nullptr || *opaque == nullptr) {
+      if (*mask != nullptr) {
+        DeleteObject(*mask);
+        *mask = nullptr;
+      }
+      if (*opaque != nullptr) {
+        DeleteObject(*opaque);
+        *opaque = nullptr;
+      }
+      return false;
+    }
+    const BYTE* srcBase    = static_cast<const BYTE*>(src.dsBm.bmBits);
+    const int srcStride    = src.dsBm.bmWidthBytes;
+    const bool srcBottomUp = src.dsBmih.biHeight > 0;
+    for (int row = 0; row < height; ++row) {
+      const int srcRow     = srcBottomUp ? (height - 1 - row) : row;
+      const int dstRow     = height - 1 - row; // bottom-up storage
+      const DWORD* srcLine = reinterpret_cast<const DWORD*>(srcBase + srcRow * srcStride);
+      DWORD* maskLine =
+          reinterpret_cast<DWORD*>(static_cast<BYTE*>(maskBits) + dstRow * maskStride);
+      DWORD* opaqueLine =
+          reinterpret_cast<DWORD*>(static_cast<BYTE*>(opaqueBits) + dstRow * opaqueStride);
+      for (int column = 0; column < width; ++column) {
+        const DWORD pixel   = srcLine[column];
+        const bool isOpaque = (pixel & 0xFF000000u) != 0;
+        maskLine[column]    = isOpaque ? 0x00000000u : 0x00FFFFFFu;
+        opaqueLine[column]  = isOpaque ? (pixel & 0x00FFFFFFu) : 0x00000000u;
+      }
+    }
+    return true;
   }
 
   // HKCU is implied; every value the app and the saver keep lives under Software.
@@ -200,11 +271,18 @@ namespace pet {
     return kDisplayProfiles[rows - 1]; // can't happen: the last row's maxHeight is INT_MAX
   }
 
-  bool LoadSprites(HINSTANCE hInst, const int resIds[DIR_COUNT], int spriteSize, Sprites* out) {
-    if (hInst == nullptr || resIds == nullptr || out == nullptr) {
-      return false;
+  LoadResult LoadSprites(HINSTANCE hInst,
+                         const int (&resIds)[DIR_COUNT],
+                         int spriteSize,
+                         Sprites* out) {
+    if (hInst == nullptr || out == nullptr) {
+      return LOAD_BAD_ARGS;
     }
-    ZeroMemory(out, sizeof(*out));
+    FreeSprites(out); // whatever it held, so a reload never leaks (also zeroes it)
+    out->memDC = CreateCompatibleDC(nullptr);
+    if (out->memDC == nullptr) {
+      return LOAD_REGION_FAILED;
+    }
     for (int frame = 0; frame < DIR_COUNT; ++frame) {
       // LR_CREATEDIBSECTION keeps the resource's 32-bpp layout (and its alpha
       // byte) instead of converting to the screen format, so the region builder
@@ -212,14 +290,14 @@ namespace pet {
       HBITMAP bitmap = LoadBitmap(hInst, resIds[frame]);
       if (bitmap == nullptr) {
         FreeSprites(out);
-        return false;
+        return LOAD_MISSING_FRAME;
       }
       BITMAP bitmapInfo = {};
       if (GetObjectW(bitmap, sizeof(bitmapInfo), &bitmapInfo) == 0 ||
           bitmapInfo.bmBitsPixel != 32) {
         DeleteObject(bitmap);
         FreeSprites(out);
-        return false;
+        return LOAD_NOT_32BPP;
       }
       // Resample to the size the display table asked for, unless it already is.
       if (spriteSize > 0 && bitmapInfo.bmHeight != spriteSize) {
@@ -227,7 +305,7 @@ namespace pet {
         DeleteObject(bitmap);
         if (scaled == nullptr) {
           FreeSprites(out);
-          return false;
+          return LOAD_SCALE_FAILED;
         }
         bitmap = scaled;
         GetObjectW(bitmap, sizeof(bitmapInfo), &bitmapInfo);
@@ -238,20 +316,55 @@ namespace pet {
         out->size.cy = bitmapInfo.bmHeight;
       } else if (bitmapInfo.bmWidth != out->size.cx || bitmapInfo.bmHeight != out->size.cy) {
         FreeSprites(out);
-        return false;
+        return LOAD_SIZE_MISMATCH;
       }
       out->rgn[frame] = BuildAlphaRegion(bitmap);
       if (out->rgn[frame] == nullptr) {
         FreeSprites(out);
-        return false;
+        return LOAD_REGION_FAILED;
+      }
+      if (!BuildBlitPair(bitmap, &out->mask[frame], &out->opaque[frame])) {
+        FreeSprites(out);
+        return LOAD_REGION_FAILED;
       }
     }
-    return true;
+    return LOAD_OK;
+  }
+
+  LoadResult LoadSpritesForProfile(HINSTANCE hInst,
+                                   const FrameIds& frameIds,
+                                   const DisplayProfile& profile,
+                                   Sprites* out) {
+    return LoadSprites(hInst, frameIds[profile.set], profile.spriteSize, out);
+  }
+
+  const wchar_t* LoadResultText(LoadResult result) {
+    switch (result) {
+      case LOAD_OK:
+        return L"OK";
+      case LOAD_BAD_ARGS:
+        return L"bad arguments";
+      case LOAD_MISSING_FRAME:
+        return L"a frame bitmap resource is missing";
+      case LOAD_NOT_32BPP:
+        return L"a frame bitmap is not 32-bpp";
+      case LOAD_SIZE_MISMATCH:
+        return L"the frame bitmaps are not all the same size";
+      case LOAD_SCALE_FAILED:
+        return L"a frame could not be scaled";
+      case LOAD_REGION_FAILED:
+        return L"GDI could not build a frame's region or mask";
+      default:
+        return L"unknown error";
+    }
   }
 
   void FreeSprites(Sprites* sprites) {
     if (sprites == nullptr) {
       return;
+    }
+    if (sprites->memDC != nullptr) {
+      DeleteDC(sprites->memDC);
     }
     for (int frame = 0; frame < DIR_COUNT; ++frame) {
       if (sprites->bmp[frame] != nullptr) {
@@ -259,6 +372,12 @@ namespace pet {
       }
       if (sprites->rgn[frame] != nullptr) {
         DeleteObject(sprites->rgn[frame]);
+      }
+      if (sprites->mask[frame] != nullptr) {
+        DeleteObject(sprites->mask[frame]);
+      }
+      if (sprites->opaque[frame] != nullptr) {
+        DeleteObject(sprites->opaque[frame]);
       }
     }
     ZeroMemory(sprites, sizeof(*sprites));
@@ -276,7 +395,7 @@ namespace pet {
     return copy;
   }
 
-  /* ------------------------------- Movement -------------------------------- */
+  /* ------------------------------- Movement --------------------------------- */
 
   void VacuumSetArea(Vacuum* vacuum, const RECT& area) {
     if (vacuum == nullptr) {
@@ -292,30 +411,37 @@ namespace pet {
     if (vacuum->bounds.bottom < vacuum->bounds.top) {
       vacuum->bounds.bottom = vacuum->bounds.top;
     }
-    // Keep the sprite inside the (possibly smaller) new area.
-    vacuum->pos.x = std::clamp(vacuum->pos.x, vacuum->bounds.left, vacuum->bounds.right);
-    vacuum->pos.y = std::clamp(vacuum->pos.y, vacuum->bounds.top, vacuum->bounds.bottom);
+    // Keep the sprite, and where it is going, inside the (possibly smaller) area.
+    vacuum->pos.x    = std::clamp(vacuum->pos.x, vacuum->bounds.left, vacuum->bounds.right);
+    vacuum->pos.y    = std::clamp(vacuum->pos.y, vacuum->bounds.top, vacuum->bounds.bottom);
+    vacuum->target.x = std::clamp(vacuum->target.x, vacuum->bounds.left, vacuum->bounds.right);
+    vacuum->target.y = std::clamp(vacuum->target.y, vacuum->bounds.top, vacuum->bounds.bottom);
   }
 
   void VacuumInit(Vacuum* vacuum, const RECT& area, const SIZE& spriteSize, int speed) {
     if (vacuum == nullptr) {
       return;
     }
-    vacuum->size  = spriteSize;
-    vacuum->pos.x = area.left; // SetArea clamps this into the derived bounds
-    vacuum->pos.y = area.top;
+    vacuum->size     = spriteSize;
+    vacuum->pos.x    = area.left; // SetArea clamps this into the derived bounds
+    vacuum->pos.y    = area.top;
+    vacuum->target.x = area.left;
+    vacuum->target.y = area.top;
     VacuumSetArea(vacuum, area);
-    vacuum->target = vacuum->pos;
     vacuum->facing = DIR_DOWN;
-    vacuum->speed  = speed > 0 ? speed : 1;
+    vacuum->speed  = std::clamp(speed, kSpeedMin, kSpeedMax);
   }
 
   void VacuumSetTarget(Vacuum* vacuum, int targetX, int targetY) {
     if (vacuum == nullptr) {
       return;
     }
-    vacuum->target.x = targetX;
-    vacuum->target.y = targetY;
+    // Clamped, so "past the edge" means "as far that way as it can go" and a
+    // target is never somewhere the vacuum can't actually reach.
+    vacuum->target.x =
+        std::clamp(static_cast<LONG>(targetX), vacuum->bounds.left, vacuum->bounds.right);
+    vacuum->target.y =
+        std::clamp(static_cast<LONG>(targetY), vacuum->bounds.top, vacuum->bounds.bottom);
   }
 
   bool VacuumAtTarget(const Vacuum* vacuum) {
@@ -357,7 +483,7 @@ namespace pet {
     const int actualX = vacuum->pos.x - old.x;
     const int actualY = vacuum->pos.y - old.y;
     if (actualX == 0 && actualY == 0) {
-      return false; // pinned against the bounds
+      return false; // can't happen with a clamped target; belt and braces
     }
     // Face the dominant axis of the move actually made; ties go horizontal.
     if (std::abs(actualX) >= std::abs(actualY)) {
@@ -377,45 +503,21 @@ namespace pet {
     return rect;
   }
 
-  /* ------------------------------- Drawing --------------------------------- */
+  /* ------------------------------- Drawing ---------------------------------- */
 
   void DrawFrame(HDC hdc, const Sprites& sprites, Dir dir, int posX, int posY) {
-    if (hdc == nullptr || dir < 0 || dir >= DIR_COUNT) {
+    if (hdc == nullptr || sprites.memDC == nullptr || dir < 0 || dir >= DIR_COUNT ||
+        sprites.mask[dir] == nullptr || sprites.opaque[dir] == nullptr) {
       return;
     }
-    const HBITMAP frame = sprites.bmp[dir];
-    if (frame == nullptr) {
-      return;
-    }
-    HDC mem = CreateCompatibleDC(hdc);
-    if (mem == nullptr) {
-      return;
-    }
-    HGDIOBJ old = SelectObject(mem, frame);
-
-    // Clip the blit to the frame's opaque pixels, offset to where it lands, and
-    // intersected with any clip the caller already had so we never widen it.
-    HRGN saved    = CreateRectRgn(0, 0, 0, 0);
-    const int had = GetClipRgn(hdc, saved); // 1 = a clip existed and is now in `saved`
-    HRGN shape    = CreateRectRgn(0, 0, 0, 0);
-    if (shape != nullptr && saved != nullptr) {
-      CombineRgn(shape, sprites.rgn[dir], nullptr, RGN_COPY);
-      OffsetRgn(shape, posX, posY);
-      if (had == 1) {
-        CombineRgn(shape, shape, saved, RGN_AND);
-      }
-      SelectClipRgn(hdc, shape); // SelectClipRgn copies, so `shape` is ours to delete
-      BitBlt(hdc, posX, posY, sprites.size.cx, sprites.size.cy, mem, 0, 0, SRCCOPY);
-      SelectClipRgn(hdc, had == 1 ? saved : nullptr); // put the caller's clip back
-    }
-    if (shape != nullptr) {
-      DeleteObject(shape);
-    }
-    if (saved != nullptr) {
-      DeleteObject(saved);
-    }
-    SelectObject(mem, old);
-    DeleteDC(mem);
+    // AND the mask on (clears the frame's opaque pixels to black, leaves the
+    // rest of the destination alone), then OR the frame on (fills exactly that
+    // black with the sprite). BitBlt honours whatever clip the DC already has.
+    HGDIOBJ previous = SelectObject(sprites.memDC, sprites.mask[dir]);
+    BitBlt(hdc, posX, posY, sprites.size.cx, sprites.size.cy, sprites.memDC, 0, 0, SRCAND);
+    SelectObject(sprites.memDC, sprites.opaque[dir]);
+    BitBlt(hdc, posX, posY, sprites.size.cx, sprites.size.cy, sprites.memDC, 0, 0, SRCPAINT);
+    SelectObject(sprites.memDC, previous);
   }
 
   void DrawVacuum(HDC hdc, const Sprites& sprites, const Vacuum& vacuum) {
@@ -438,7 +540,59 @@ namespace pet {
     return GetSysColor(COLOR_DESKTOP);
   }
 
-  /* ------------------------------- Registry -------------------------------- */
+  /* ------------------------------- Settings --------------------------------- */
+
+  void LoadEraseSettings(const wchar_t* subkey, int defaultSpeed, EraseSettings* settings) {
+    if (settings == nullptr) {
+      return;
+    }
+    DWORD value               = 0;
+    settings->speed           = std::clamp(defaultSpeed, kSpeedMin, kSpeedMax);
+    settings->customColor     = RGB(0, 0, 0);
+    settings->useDesktopColor = true;
+    ZeroMemory(settings->customPalette, sizeof(settings->customPalette));
+    if (RegReadDword(subkey, kRegSpeed, &value)) {
+      settings->speed = std::clamp(static_cast<int>(value), kSpeedMin, kSpeedMax);
+    }
+    if (RegReadDword(subkey, kRegEraseColor, &value)) {
+      settings->customColor = static_cast<COLORREF>(value);
+    }
+    if (RegReadDword(subkey, kRegUseDesktop, &value)) {
+      settings->useDesktopColor = (value != 0);
+    }
+  }
+
+  bool SaveEraseSettings(const wchar_t* subkey, const EraseSettings& settings) {
+    bool success = RegWriteDword(subkey, kRegSpeed, static_cast<DWORD>(settings.speed));
+    success =
+        RegWriteDword(subkey, kRegEraseColor, static_cast<DWORD>(settings.customColor)) && success;
+    success = RegWriteDword(subkey, kRegUseDesktop, settings.useDesktopColor ? 1u : 0u) && success;
+    return success;
+  }
+
+  COLORREF EffectiveEraseColor(const EraseSettings& settings) {
+    return settings.useDesktopColor ? DefaultEraseColor() : settings.customColor;
+  }
+
+  bool PickEraseColor(HWND owner, EraseSettings* settings) {
+    if (settings == nullptr) {
+      return false;
+    }
+    CHOOSECOLORW chooser = {};
+    chooser.lStructSize  = sizeof(chooser);
+    chooser.hwndOwner    = owner;
+    chooser.rgbResult    = settings->customColor;
+    chooser.lpCustColors = settings->customPalette;
+    chooser.Flags        = CC_RGBINIT | CC_FULLOPEN;
+    if (!ChooseColorW(&chooser)) {
+      return false; // cancelled
+    }
+    settings->customColor     = chooser.rgbResult;
+    settings->useDesktopColor = false; // picking a colour means "not the desktop's"
+    return true;
+  }
+
+  /* ------------------------------- Registry --------------------------------- */
 
   bool RegReadDword(const wchar_t* subkey, const wchar_t* name, DWORD* out) {
     if (subkey == nullptr || name == nullptr || out == nullptr) {
@@ -476,6 +630,16 @@ namespace pet {
                                        reinterpret_cast<const BYTE*>(&value), sizeof(value));
     RegCloseKey(key);
     return result == ERROR_SUCCESS;
+  }
+
+  bool RegDeleteSubkey(const wchar_t* subkey) {
+    if (subkey == nullptr) {
+      return false;
+    }
+    // Our keys hold values only, never subkeys, so the plain NT4-era delete
+    // (which refuses a key with children) is all that is needed.
+    const LONG result = RegDeleteKeyW(HKEY_CURRENT_USER, RegPath(subkey).c_str());
+    return result == ERROR_SUCCESS || result == ERROR_FILE_NOT_FOUND;
   }
 
 } // namespace pet
