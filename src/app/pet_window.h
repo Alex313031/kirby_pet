@@ -24,7 +24,7 @@ namespace petwin {
   // baked sets; the IDs are copied, so the array need not outlive the call),
   // registers the window class, and shows the sprite parked at the top-left
   // of the screen. False on failure; LastLoadResult says why.
-  bool Create(HINSTANCE hInst, const pet::FrameIds& frameIds);
+  [[nodiscard]] bool Create(HINSTANCE hInst, const pet::FrameIds& frameIds);
   void Destroy();
 
   // What the most recent sprite load reported, for the error message.
@@ -37,12 +37,12 @@ namespace petwin {
   // above the desktop); false: it rides on top of everything (topmost). False
   // if the window exists and Windows refused to move it in the Z order; the
   // setting is remembered either way and applied at the next Create.
-  bool SetUnderWindows(bool under);
+  [[nodiscard]] bool SetUnderWindows(bool under);
   // Call on WM_DISPLAYCHANGE: re-fits the roaming area to the new screen and,
   // if the display table wants another frame set or size for it, reloads the
   // sprites. False if that reload or the window's new outline failed - the old
   // frames stay in use, and LastLoadResult says what went wrong.
-  bool UpdateBounds();
+  [[nodiscard]] bool UpdateBounds();
 
   // One animation tick: aim per the mode, step, move the window, and vacuum
   // (erase to the color) the spot just vacated on the desktop.

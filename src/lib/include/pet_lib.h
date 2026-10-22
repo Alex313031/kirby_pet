@@ -107,6 +107,10 @@ namespace pet {
 
   /* ------------------------------- Functions -------------------------------- */
 
+  // [[nodiscard]] marks every result that is a verdict (did it work?) or a
+  // resource (a region to own): dropping one is a bug the compiler can point
+  // out. Plain queries - colours, text, the step's "did it move" - are not.
+
   /* ------------------------------- Sprites ---------------------------------- */
 
   // The display-table row for a screen `screenHeight` pixels tall: the first
@@ -118,16 +122,16 @@ namespace pet {
   // nearest-neighbour, so the pixel art stays crisp and the alpha survives),
   // and builds their regions and blit masks. Anything `out` already holds is
   // freed first. On any failure `out` is left empty and the reason returned.
-  LoadResult LoadSprites(HINSTANCE hInst,
-                         const int (&resIds)[DIR_COUNT],
-                         int spriteSize,
-                         Sprites* out);
+  [[nodiscard]] LoadResult LoadSprites(HINSTANCE hInst,
+                                       const int (&resIds)[DIR_COUNT],
+                                       int spriteSize,
+                                       Sprites* out);
 
   // LoadSprites with the set and size a display-table row calls for.
-  LoadResult LoadSpritesForProfile(HINSTANCE hInst,
-                                   const FrameIds& frameIds,
-                                   const DisplayProfile& profile,
-                                   Sprites* out);
+  [[nodiscard]] LoadResult LoadSpritesForProfile(HINSTANCE hInst,
+                                                 const FrameIds& frameIds,
+                                                 const DisplayProfile& profile,
+                                                 Sprites* out);
 
   // A short description of a LoadResult, for logs and message boxes.
   const wchar_t* LoadResultText(LoadResult result);
@@ -136,7 +140,7 @@ namespace pet {
 
   // A caller-owned copy of a frame's region (origin 0,0). SetWindowRgn takes
   // ownership of what it's given, so hand it a fresh clone each time.
-  HRGN CloneRegion(const Sprites& sprites, Dir dir);
+  [[nodiscard]] HRGN CloneRegion(const Sprites& sprites, Dir dir);
 
   /* ------------------------------- Movement --------------------------------- */
 
@@ -170,16 +174,16 @@ namespace pet {
   // Correct on any DC, so the screensaver can composite onto a back buffer.
   // False if the sprites aren't loaded, the facing is out of range, or GDI
   // refused a blit.
-  bool DrawVacuum(HDC hdc, const Sprites& sprites, const Vacuum& vacuum);
+  [[nodiscard]] bool DrawVacuum(HDC hdc, const Sprites& sprites, const Vacuum& vacuum);
 
   // Blits frame `dir` with its top-left at (posX, posY), transparent pixels
   // left alone. DrawVacuum is this at the vacuum's position; a window that is
   // the sprite paints with (0, 0). Same false cases as DrawVacuum.
-  bool DrawFrame(HDC hdc, const Sprites& sprites, Dir dir, int posX, int posY);
+  [[nodiscard]] bool DrawFrame(HDC hdc, const Sprites& sprites, Dir dir, int posX, int posY);
 
   // Fills `rect` with a solid color: the "vacuumed clean" eraser. False if
   // there is no DC, or GDI refused the brush or the fill.
-  bool EraseRect(HDC hdc, const RECT& rect, COLORREF color);
+  [[nodiscard]] bool EraseRect(HDC hdc, const RECT& rect, COLORREF color);
 
   // The color both consumers erase to unless the user picked one: the desktop
   // background (COLOR_DESKTOP), read live so a theme change tracks.
@@ -193,7 +197,7 @@ namespace pet {
   void LoadEraseSettings(const wchar_t* subkey, int defaultSpeed, EraseSettings* settings);
 
   // Writes the three persisted fields back. False if any write failed.
-  bool SaveEraseSettings(const wchar_t* subkey, const EraseSettings& settings);
+  [[nodiscard]] bool SaveEraseSettings(const wchar_t* subkey, const EraseSettings& settings);
 
   // The colour the vacuum erases to right now: the live desktop colour or the
   // custom one, per the setting.
@@ -203,18 +207,18 @@ namespace pet {
   // palette. On OK stores the pick, switches `useDesktopColor` off (picking a
   // colour means "not the desktop's"), and returns true; on Cancel changes
   // nothing and returns false. The caller refreshes its own controls.
-  bool PickEraseColor(HWND owner, EraseSettings* settings);
+  [[nodiscard]] bool PickEraseColor(HWND owner, EraseSettings* settings);
 
   /* ------------------------------- Registry --------------------------------- */
 
   // Minimal HKCU\Software\<subkey> DWORD persistence shared by app and saver.
-  bool RegReadDword(const wchar_t* subkey, const wchar_t* name, DWORD* out);
-  bool RegWriteDword(const wchar_t* subkey, const wchar_t* name, DWORD value);
+  [[nodiscard]] bool RegReadDword(const wchar_t* subkey, const wchar_t* name, DWORD* out);
+  [[nodiscard]] bool RegWriteDword(const wchar_t* subkey, const wchar_t* name, DWORD value);
 
   // Removes HKCU\Software\<subkey> and everything saved under it, so the next
   // load finds nothing and falls back to the defaults. True if it is gone,
   // including when it never existed.
-  bool RegDeleteSubkey(const wchar_t* subkey);
+  [[nodiscard]] bool RegDeleteSubkey(const wchar_t* subkey);
 
 } // namespace pet
 

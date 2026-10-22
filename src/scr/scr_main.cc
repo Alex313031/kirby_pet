@@ -270,7 +270,9 @@ static void PaintFootprint(const RECT& rect) {
     BitBlt(s_canvasDC, rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top,
            s_pristineDC, rect.left, rect.top, SRCCOPY);
   } else {
-    pet::EraseRect(s_canvasDC, rect, pet::EffectiveEraseColor(s_erase));
+    // Dropped on purpose, like the BitBlt above: a spot that failed to erase
+    // gets another go on a later pass.
+    static_cast<void>(pet::EraseRect(s_canvasDC, rect, pet::EffectiveEraseColor(s_erase)));
   }
 }
 
@@ -499,7 +501,9 @@ LRESULT WINAPI ScreenSaverProcW(HWND hWnd, UINT message, WPARAM wParam, LPARAM l
                paintRect.bottom - paintRect.top, s_canvasDC, paintRect.left, paintRect.top,
                SRCCOPY);
         if (s_haveSprites) {
-          pet::DrawVacuum(hdc, s_sprites, s_vac); // honours the paint clip
+          // Honours the paint clip. Result dropped on purpose: nothing to do
+          // mid-paint about a refused blit except paint again next time.
+          static_cast<void>(pet::DrawVacuum(hdc, s_sprites, s_vac));
         }
       }
       EndPaint(hWnd, &paint);
@@ -548,7 +552,9 @@ WINBOOL WINAPI ScreenSaverConfigureDialog(HWND hDlg, UINT message, WPARAM wParam
     case WM_DRAWITEM: {
       const DRAWITEMSTRUCT* dis = reinterpret_cast<const DRAWITEMSTRUCT*>(lParam);
       if (dis != nullptr && dis->CtlID == IDC_SWATCH) {
-        pet::EraseRect(dis->hDC, dis->rcItem, pet::EffectiveEraseColor(s_erase));
+        // Result dropped on purpose: a swatch that failed to fill just shows
+        // its frame until the next draw.
+        static_cast<void>(pet::EraseRect(dis->hDC, dis->rcItem, pet::EffectiveEraseColor(s_erase)));
         FrameRect(dis->hDC, &dis->rcItem, static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH)));
         return TRUE;
       }
@@ -571,11 +577,17 @@ WINBOOL WINAPI ScreenSaverConfigureDialog(HWND hDlg, UINT message, WPARAM wParam
         case IDC_ABOUT:
           DialogBoxW(hMainInstance, MAKEINTRESOURCEW(IDD_ABOUTDLG), hDlg, AboutDlgProc);
           return TRUE;
-        case IDOK:
-          pet::SaveEraseSettings(kRegSubkey, s_erase);
-          pet::RegWriteDword(kRegSubkey, kRegPlaySound, s_playSound ? 1u : 0u);
+        case IDOK: {
+          bool saved = pet::SaveEraseSettings(kRegSubkey, s_erase);
+          saved = pet::RegWriteDword(kRegSubkey, kRegPlaySound, s_playSound ? 1u : 0u) && saved;
+          if (!saved) {
+            // The dialog is the only place the saver can say so. It still
+            // closes, with whatever did get written in place.
+            MessageBoxW(hDlg, L"The settings could not be saved.", APP_NAME, MB_OK | MB_ICONWARNING);
+          }
           EndDialog(hDlg, TRUE);
           return TRUE;
+        }
         case IDCANCEL:
           EndDialog(hDlg, FALSE);
           return TRUE;

@@ -891,8 +891,10 @@ bool InitApp(HWND hWnd) {
       {IDB_PET_UP_1X, IDB_PET_DOWN_1X, IDB_PET_LEFT_1X, IDB_PET_RIGHT_1X},
       {IDB_PET_UP_2X, IDB_PET_DOWN_2X, IDB_PET_LEFT_2X, IDB_PET_RIGHT_2X}};
   // Settled before Create so the sprite first appears where it belongs,
-  // rather than on top for a tick and then dropping under the windows.
-  petwin::SetUnderWindows(s_underWindows);
+  // rather than on top for a tick and then dropping under the windows. The
+  // result is dropped: with no window yet it is always true, and
+  // ApplySettingsToPet below checks the real application.
+  static_cast<void>(petwin::SetUnderWindows(s_underWindows));
   if (!petwin::Create(g_hInstance, kFrameIds)) {
     const std::wstring reason = pet::LoadResultText(petwin::LastLoadResult());
     LOG(ERROR) << L"Failed to create the pet window: " << reason;

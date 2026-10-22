@@ -399,13 +399,15 @@ namespace petwin {
       case WM_PAINT: {
         PAINTSTRUCT paint;
         HDC hdc = BeginPaint(hWnd, &paint);
+        // Both results dropped on purpose: mid-paint there is nothing to do
+        // about a refused fill or blit except paint again next time.
         if (s_layered) {
           // Everything the frame doesn't cover is the key colour: see-through.
           RECT client;
           GetClientRect(hWnd, &client);
-          pet::EraseRect(hdc, client, kSpriteColorKey);
+          static_cast<void>(pet::EraseRect(hdc, client, kSpriteColorKey));
         }
-        pet::DrawFrame(hdc, s_sprites, s_vac.facing, 0, 0);
+        static_cast<void>(pet::DrawFrame(hdc, s_sprites, s_vac.facing, 0, 0));
         EndPaint(hWnd, &paint);
         return 0;
       }
