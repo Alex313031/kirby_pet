@@ -6,15 +6,6 @@
 # Toolchain, build type, defines and the pattern rules live here; each
 # subdirectory adds its own include dirs, defines, libs and link line.
 
-# Compiler and tools
-CC       := i686-w64-mingw32-gcc
-CXX      := i686-w64-mingw32-g++
-LD       := i686-w64-mingw32-g++
-AR       := i686-w64-mingw32-ar
-DLLTOOL  := i686-w64-mingw32-dlltool
-GENDEF   := gendef
-RC       := i686-w64-mingw32-windres
-
 # Build type: choose Debug or Release
 # Default is Debug
 BUILDTYPE ?= Debug
@@ -40,17 +31,56 @@ ifeq ($(filter /%,$(OUT_DIR))$(findstring :,$(OUT_DIR)),)
 override OUT_DIR := $(PROJECT_ROOT)/$(OUT_DIR)
 endif
 
+# Oldest Windows the binaries will load on, like the GN winver argument.
+# `make WINVER_TARGET=nt4` builds for NT 4: subsystem 4.00 and _WIN32_WINNT
+# 0x0400, which is the only way the NT4 fallbacks in the code can ever run -
+# NT4's loader refuses an image whose subsystem version is 5.0. It also
+# switches to the i586 MinGW toolchain, as the GN build does: its runtime only
+# calls what NT4's system DLLs have, and the code is held to a Pentium with
+# x87 floating point - NT4 never saves SSE state across a context switch, so
+# SSE code is not merely slow there but wrong. Anything else (the default) is
+# Windows 2000 on the i686 toolchain, as before. Switching needs a
+# `make clean`: the defines and the arch are baked into every object.
+WINVER_TARGET ?= 2000
+ifneq ($(filter nt4 NT4 4.0,$(WINVER_TARGET)),)
+MINGW_ARCH  := i586
+WIN32_WINNT := 0x0400
+WIN32_IE    := 0x0400
+SUBSYSTEM   := 4.00
+SIMDFLAGS   := -march=i586 -mfpmath=387 -mno-mmx -mno-fxsr -mno-sse -mno-sse2
+else
+MINGW_ARCH  := i686
+WIN32_WINNT := 0x0500
+WIN32_IE    := 0x0501
+SUBSYSTEM   := 5.00
+SIMDFLAGS   := -mfpmath=sse -mfxsr -msse
+endif
+
+# Compiler and tools. Taken from gn-legacy's own tools/ tree when this checkout
+# lives inside it (../../tools/mingw/<host>/<arch>/bin, the same binaries GN
+# runs), otherwise from PATH, so a standalone checkout builds with whichever
+# <arch>-w64-mingw32 toolchain is installed.
+MINGW_HOST  := $(if $(filter Windows_NT,$(OS)),win,linux)
+MINGW_BIN   := $(wildcard $(PROJECT_ROOT)/../../tools/mingw/$(MINGW_HOST)/$(MINGW_ARCH)/bin)
+TOOL_DIR    := $(if $(MINGW_BIN),$(MINGW_BIN)/,)
+TOOL_PREFIX := $(TOOL_DIR)$(MINGW_ARCH)-w64-mingw32-
+CC       := $(TOOL_PREFIX)gcc
+CXX      := $(TOOL_PREFIX)g++
+LD       := $(TOOL_PREFIX)g++
+AR       := $(TOOL_PREFIX)ar
+DLLTOOL  := $(TOOL_PREFIX)dlltool
+GENDEF   := $(TOOL_DIR)gendef
+RC       := $(TOOL_PREFIX)windres
+
 # Compiler flags #
-DEFINES  := -DUNICODE -D_UNICODE -D_WINDOWS -DWINVER=0x0500 -D_WIN32_WINNT=0x0500 -D_WIN64_WINNT=0x0502 -D_WIN32_IE=0x501
+DEFINES  := -DUNICODE -D_UNICODE -D_WINDOWS -DWINVER=$(WIN32_WINNT) -D_WIN32_WINNT=$(WIN32_WINNT) -D_WIN64_WINNT=0x0502 -D_WIN32_IE=$(WIN32_IE)
 # Show all errors, compile everything static, ensure relocatable data.
 # -municode is NOT here: the app wants it (wWinMain), the screensaver must not
 # have it (scrnsave.lib supplies a narrow WinMain). Each adds its own.
 CFLAGS   := $(DEFINES) -Wall -Wunused-function -static-libgcc -finput-charset=UTF-8 -fexec-charset=UTF-8 -MMD -MP
 
-# March flags
-SIMDFLAGS = -mfpmath=sse -mfxsr -msse
-
-# Compiler optimization and architecture flags
+# Compiler optimization and architecture flags (SIMDFLAGS follows
+# WINVER_TARGET above)
 ifeq ($(BUILDTYPE), Release)
 CFLAGS   += -O3 -g0 -s $(SIMDFLAGS) -DNDEBUG -D_NDEBUG
 endif

@@ -32,8 +32,8 @@ INCLUDE_DIRS := -I. -I$(LOGGING_DIR) -I$(LIB_DIR)/include
 # -municode: this is a GUI windows app with a wWinMain
 CFLAGS   += -municode
 CXXFLAGS += -municode
-# Linker flags
-LDFLAGS  := -L$(LIB_DIR) -municode -Wl,--subsystem,windows:5.00
+# Linker flags. SUBSYSTEM follows WINVER_TARGET (see ../common.mk).
+LDFLAGS  := -L$(LIB_DIR) -municode -Wl,--subsystem,windows:$(SUBSYSTEM)
 
 # Include generated dependency files
 -include $(OBJ_C:.o=.d)

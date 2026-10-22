@@ -33,8 +33,8 @@ CXXFLAGS += -DPET_SCR
 # No -municode here: scrnsave.lib supplies a narrow WinMain, and -municode
 # would make the CRT's startup look for a wWinMain instead. UNICODE/_UNICODE
 # still come from DEFINES, so ScreenSaverProc resolves to ScreenSaverProcW.
-# Linker flags
-LDFLAGS  := -L$(LIB_DIR) -Wl,--subsystem,windows:5.00
+# Linker flags. SUBSYSTEM follows WINVER_TARGET (see ../common.mk).
+LDFLAGS  := -L$(LIB_DIR) -Wl,--subsystem,windows:$(SUBSYSTEM)
 # PlaySound (the vacuum loop)
 LIBS     += -lwinmm
 
