@@ -62,6 +62,7 @@ config("kirby_scr_config") {
     "comdlg32",
     "gdi32",
     "advapi32",  # registry (persisted speed / color)
+    "winmm",     # PlaySound (the vacuum loop)
     "scrnsavw",  # UNICODE scrnsave: supplies WinMain + the /s /c /p protocol
   ]
 }

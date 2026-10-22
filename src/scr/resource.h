@@ -4,6 +4,7 @@
 //
 // ID range map (keep new entries inside their range):
 //   100-119  IDI_*  Icons (ID_APP = 100 is the one scrnsave.lib loads)
+//   120-129  IDR_*  Wav sound resources
 //   130-149  IDD_*  Dialogs
 //   150-169  IDB_*  Bitmaps (vacuum sprite frames)
 //   300-399  IDC_*  Config-dialog control IDs
@@ -17,14 +18,17 @@
  #define IDS_DESCRIPTION        1    // string: the saver's display name
 #endif
 #ifndef ID_APP
- #define ID_APP                 100  // icon scrnsave uses for the saver
+ #define ID_APP                 100  // 16x16 & 32x32 icon scrnsave uses for the executable
 #endif
 #ifndef DLG_SCRNSAVECONFIGURE
  #define DLG_SCRNSAVECONFIGURE  2003 // the /c settings dialog
 #endif
 
 /* Icons (100-119) */
-#define IDI_MAIN                101 /* 32x32 & 48x48 icon (About dialog) */
+#define IDI_MAIN                101 /* 16x16 & 32x32 icon (About dialog) */
+
+/* Sound resource (120-129) */
+#define IDR_3CB_WAV             120 /* Kirby Tradition running */
 
 /* Dialogs (130-149) */
 #define IDD_ABOUTDLG            130 // About Dialog
@@ -47,6 +51,7 @@
 #define IDC_COLOR               303 // "Pick Color..." (ChooseColor)
 #define IDC_SWATCH              304 // Owner-drawn swatch of the current erase color
 #define IDC_ABOUT               305 // "About..." button
+#define IDC_PLAYSOUND           306 // Checkbox: loop the vacuum sound while the saver runs
 
 // For resources to be loaded without an ID from the system.
 #ifndef IDC_STATIC

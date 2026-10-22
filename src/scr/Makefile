@@ -35,6 +35,8 @@ CXXFLAGS += -DPET_SCR
 # still come from DEFINES, so ScreenSaverProc resolves to ScreenSaverProcW.
 # Linker flags
 LDFLAGS  := -L$(LIB_DIR) -Wl,--subsystem,windows:5.00
+# PlaySound (the vacuum loop)
+LIBS     += -lwinmm
 
 # Include generated dependency files
 -include $(OBJ_C:.o=.d)
