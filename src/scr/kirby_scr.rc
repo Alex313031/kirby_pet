@@ -28,17 +28,19 @@ CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "res/kirby_scr.manifest"
 ID_APP       ICON  "res/scr.ico"
 IDI_MAIN     ICON  "res/scr.ico"
 
+IDR_3CB_WAV  WAVE  "../res/sounds/3CB.wav"
+
 // Vacuum sprite frames, 32-bpp with alpha; pet_lib loads them as DIB sections
 // and clips drawing to the alpha channel. Both sizes are baked in: 1x (32x32)
 // for the /p preview, 2x (64x64) for the real screen.
-IDB_PET_UP_1X     BITMAP  "../bmp/up_1x.bmp"
-IDB_PET_DOWN_1X   BITMAP  "../bmp/down_1x.bmp"
-IDB_PET_LEFT_1X   BITMAP  "../bmp/left_1x.bmp"
-IDB_PET_RIGHT_1X  BITMAP  "../bmp/right_1x.bmp"
-IDB_PET_UP_2X     BITMAP  "../bmp/up_2x.bmp"
-IDB_PET_DOWN_2X   BITMAP  "../bmp/down_2x.bmp"
-IDB_PET_LEFT_2X   BITMAP  "../bmp/left_2x.bmp"
-IDB_PET_RIGHT_2X  BITMAP  "../bmp/right_2x.bmp"
+IDB_PET_UP_1X     BITMAP  "../res/bmp/up_1x.bmp"
+IDB_PET_DOWN_1X   BITMAP  "../res/bmp/down_1x.bmp"
+IDB_PET_LEFT_1X   BITMAP  "../res/bmp/left_1x.bmp"
+IDB_PET_RIGHT_1X  BITMAP  "../res/bmp/right_1x.bmp"
+IDB_PET_UP_2X     BITMAP  "../res/bmp/up_2x.bmp"
+IDB_PET_DOWN_2X   BITMAP  "../res/bmp/down_2x.bmp"
+IDB_PET_LEFT_2X   BITMAP  "../res/bmp/left_2x.bmp"
+IDB_PET_RIGHT_2X  BITMAP  "../res/bmp/right_2x.bmp"
 
 #if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_ENU)
 LANGUAGE LANG_ENGLISH, SUBLANG_NEUTRAL

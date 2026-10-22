@@ -23,14 +23,15 @@ executable("kirby_scr") {
   # Binary resources kirby_scr.rc pulls in. windres' -MMD only reports
   # #included headers, so without these a sprite edit wouldn't rebuild the .res.
   inputs = [
-    "../bmp/down_1x.bmp",
-    "../bmp/down_2x.bmp",
-    "../bmp/left_1x.bmp",
-    "../bmp/left_2x.bmp",
-    "../bmp/right_1x.bmp",
-    "../bmp/right_2x.bmp",
-    "../bmp/up_1x.bmp",
-    "../bmp/up_2x.bmp",
+    "../res/bmp/down_1x.bmp",
+    "../res/bmp/down_2x.bmp",
+    "../res/bmp/left_1x.bmp",
+    "../res/bmp/left_2x.bmp",
+    "../res/bmp/right_1x.bmp",
+    "../res/bmp/right_2x.bmp",
+    "../res/bmp/up_1x.bmp",
+    "../res/bmp/up_2x.bmp",
+    "../res/sounds/3CB.wav",
     "res/kirby_scr.manifest",
     "res/scr.ico",
   ]

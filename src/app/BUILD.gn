@@ -26,14 +26,14 @@ executable("kirby_pet") {
   # Binary resources kirby_pet.rc pulls in. windres' -MMD only reports #included
   # headers, so without these a sprite or icon edit wouldn't rebuild the .res.
   inputs = [
-    "../bmp/down_1x.bmp",
-    "../bmp/down_2x.bmp",
-    "../bmp/left_1x.bmp",
-    "../bmp/left_2x.bmp",
-    "../bmp/right_1x.bmp",
-    "../bmp/right_2x.bmp",
-    "../bmp/up_1x.bmp",
-    "../bmp/up_2x.bmp",
+    "../res/bmp/down_1x.bmp",
+    "../res/bmp/down_2x.bmp",
+    "../res/bmp/left_1x.bmp",
+    "../res/bmp/left_2x.bmp",
+    "../res/bmp/right_1x.bmp",
+    "../res/bmp/right_2x.bmp",
+    "../res/bmp/up_1x.bmp",
+    "../res/bmp/up_2x.bmp",
     "res/about.ico",
     "res/kirby_pet.manifest",
     "res/main.ico",

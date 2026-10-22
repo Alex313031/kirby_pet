@@ -33,14 +33,14 @@ IDI_ABOUT    ICON  "res/about.ico"
 // Vacuum sprite frames, 32-bpp with alpha; pet_lib loads them as DIB sections
 // and builds each facing's window region from the alpha channel. Both sizes
 // are baked in: 1x is 32x32, 2x is 64x64.
-IDB_PET_UP_1X     BITMAP  "../bmp/up_1x.bmp"
-IDB_PET_DOWN_1X   BITMAP  "../bmp/down_1x.bmp"
-IDB_PET_LEFT_1X   BITMAP  "../bmp/left_1x.bmp"
-IDB_PET_RIGHT_1X  BITMAP  "../bmp/right_1x.bmp"
-IDB_PET_UP_2X     BITMAP  "../bmp/up_2x.bmp"
-IDB_PET_DOWN_2X   BITMAP  "../bmp/down_2x.bmp"
-IDB_PET_LEFT_2X   BITMAP  "../bmp/left_2x.bmp"
-IDB_PET_RIGHT_2X  BITMAP  "../bmp/right_2x.bmp"
+IDB_PET_UP_1X     BITMAP  "../res/bmp/up_1x.bmp"
+IDB_PET_DOWN_1X   BITMAP  "../res/bmp/down_1x.bmp"
+IDB_PET_LEFT_1X   BITMAP  "../res/bmp/left_1x.bmp"
+IDB_PET_RIGHT_1X  BITMAP  "../res/bmp/right_1x.bmp"
+IDB_PET_UP_2X     BITMAP  "../res/bmp/up_2x.bmp"
+IDB_PET_DOWN_2X   BITMAP  "../res/bmp/down_2x.bmp"
+IDB_PET_LEFT_2X   BITMAP  "../res/bmp/left_2x.bmp"
+IDB_PET_RIGHT_2X  BITMAP  "../res/bmp/right_2x.bmp"
 
 #if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_ENU)
 LANGUAGE LANG_ENGLISH, SUBLANG_NEUTRAL
@@ -77,6 +77,8 @@ BEGIN
     POPUP "&Settings"
     BEGIN
         MENUITEM "Minimize to &Tray",  IDM_TRAY
+        MENUITEM SEPARATOR
+        MENUITEM "&Reset Settings",    IDM_RESET
     END
     POPUP "&About"
     BEGIN
