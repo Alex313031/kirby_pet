@@ -31,7 +31,7 @@ namespace pet {
 
   /* -------------------------- Forward declarations -------------------------- */
 
-  static HBITMAP LoadBitmap(HINSTANCE hInst, const int resId);
+  static HBITMAP LoadSpriteBitmap(HINSTANCE hInst, const int resId);
   static HBITMAP CreateDib32(int width, int height, void** bits, int* stride);
   static HBITMAP ScaleDib(HBITMAP source, int targetHeight);
   static bool BuildBlitPair(HBITMAP frame, HBITMAP* mask, HBITMAP* opaque);
@@ -39,7 +39,10 @@ namespace pet {
 
   /* ---------------------------- Static Functions ---------------------------- */
 
-  static HBITMAP LoadBitmap(HINSTANCE hInst, const int resId) {
+  // One RT_BITMAP resource as a 32-bpp DIB section. (Not "LoadBitmap": that is
+  // a Win32 macro for LoadBitmapW, and the name would be rewritten to overload
+  // the SDK's own function.)
+  static HBITMAP LoadSpriteBitmap(HINSTANCE hInst, const int resId) {
     if (hInst == nullptr || resId == -1) {
       return nullptr;
     }
@@ -287,7 +290,7 @@ namespace pet {
       // LR_CREATEDIBSECTION keeps the resource's 32-bpp layout (and its alpha
       // byte) instead of converting to the screen format, so the region builder
       // can read it back.
-      HBITMAP bitmap = LoadBitmap(hInst, resIds[frame]);
+      HBITMAP bitmap = LoadSpriteBitmap(hInst, resIds[frame]);
       if (bitmap == nullptr) {
         FreeSprites(out);
         return LOAD_MISSING_FRAME;
@@ -323,6 +326,14 @@ namespace pet {
         FreeSprites(out);
         return LOAD_REGION_FAILED;
       }
+      RECT box;
+      if (GetRgnBox(out->rgn[frame], &box) == NULLREGION) {
+        // Alpha is zero on every pixel - most likely a 32-bpp BMP written
+        // without an alpha channel. It would "load" as a sprite that never
+        // draws, so say what is actually wrong instead.
+        FreeSprites(out);
+        return LOAD_NO_ALPHA;
+      }
       if (!BuildBlitPair(bitmap, &out->mask[frame], &out->opaque[frame])) {
         FreeSprites(out);
         return LOAD_REGION_FAILED;
@@ -348,6 +359,8 @@ namespace pet {
         return L"a frame bitmap resource is missing";
       case LOAD_NOT_32BPP:
         return L"a frame bitmap is not 32-bpp";
+      case LOAD_NO_ALPHA:
+        return L"a frame bitmap has no alpha channel (every pixel is transparent)";
       case LOAD_SIZE_MISMATCH:
         return L"the frame bitmaps are not all the same size";
       case LOAD_SCALE_FAILED:

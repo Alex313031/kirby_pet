@@ -47,6 +47,8 @@ namespace pet {
     LOAD_BAD_ARGS,      // null instance / IDs / output
     LOAD_MISSING_FRAME, // a resource ID didn't load (wrong ID, or not in this module)
     LOAD_NOT_32BPP,     // a frame isn't 32-bpp, so there is no alpha to read
+    LOAD_NO_ALPHA,      // a frame's alpha is zero on every pixel (a 32-bpp BMP saved
+                        // without an alpha channel): it would never draw anything
     LOAD_SIZE_MISMATCH, // the four frames aren't all the same size
     LOAD_SCALE_FAILED,  // couldn't resample a frame to the requested size
     LOAD_REGION_FAILED, // GDI refused to build a frame's alpha region
