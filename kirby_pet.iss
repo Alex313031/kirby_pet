@@ -2,12 +2,12 @@
 ; Only for Inno Setup 5.x to support Windows 2000/XP
 ; Tested with ISS 5.6.1
 
-#define AppVer "0.0.2"
+#define AppVer "0.0.5"
 #define AppName "Kirby Pet"
 #define ExeName "kirby_pet"
 #define ScrName "kirby_scr"
 #define Developer "Alex313031"
-#define CopyRightYear "Â© 2026"
+#define CopyRightYear "© 2026"
 #define GitURL "https://github.com/Alex313031/kirby_pet"
 
 [Setup]

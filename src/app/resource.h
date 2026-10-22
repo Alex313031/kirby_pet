@@ -40,6 +40,7 @@
 #define IDM_HELP                203 // Opens help
 #define IDM_TRAY                204 // Toggle minimizing to tray or taskbar
 #define IDM_SHOW                205 // Restore the settings window (tray menu)
+#define IDM_RESET               206 // Reset all settings to defaults
 
 /* Child control IDs (300-399) */
 #define IDC_SPEED               300 // Slider to change Kirby's speed
@@ -48,6 +49,7 @@
 #define IDC_COLOR               303 // "Erase Color..." button (ChooseColor)
 #define IDC_SWATCH              304 // Static showing the current erase color
 #define IDC_DESKTOPCOLOR        305 // Checkbox: erase to the desktop background color
+#define IDC_UNDERWINDOWS        306 // Checkbox: the vacuum travels under other windows
 
 // For resources to be loaded without an ID from the system.
 #ifndef IDC_STATIC

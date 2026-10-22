@@ -41,12 +41,13 @@ inline constexpr INT kSwatchSize    = 24;
 inline constexpr INT CW_WIDTH = 300;
 // Derived from the very constants LayoutChildren steps through, so the window
 // can't drift out of sync with the rows it has to hold: top pad, slider row,
-// the two mode checkboxes, the erase label, the desktop-color checkbox, the
-// button/swatch row, and the matching bottom pad.
+// the two mode checkboxes, the under-windows checkbox, the erase label, the
+// desktop-color checkbox, the button/swatch row, and the matching bottom pad.
 inline constexpr INT CW_HEIGHT = kPadTop +                    // top pad
                                  kSliderHeight + kVGap +      // speed row
                                  kControlHeight + kVGap +     // follow
-                                 kControlHeight + kVGap * 2 + // run away
+                                 kControlHeight + kVGap +     // run away
+                                 kControlHeight + kVGap * 2 + // under windows
                                  kControlHeight + kVGap / 2 + // "Erase to:"
                                  kControlHeight + kVGap +     // desktop color
                                  kButtonHeight +              // pick + swatch
@@ -55,10 +56,9 @@ inline constexpr INT CW_HEIGHT = kPadTop +                    // top pad
 // Pet animation: one tick every kTickMs; speed = pixels moved per tick. The
 // default speed is not a constant: it comes from the display table in pet_lib
 // (pet::ProfileForHeight) and depends on the screen height.
+// The speed range itself (pet::kSpeedMin / kSpeedMax) is the library's.
 inline constexpr UINT kTickTimerId = 1;
 inline constexpr UINT kTickMs      = 50;
-inline constexpr int kSpeedMin     = 1;
-inline constexpr int kSpeedMax     = 32;
 // Run-away mode: flee when the cursor comes within this many pixels of the
 // vacuum's centre, running this far away from it.
 inline constexpr int kFleeRadius = 120;
@@ -68,12 +68,13 @@ inline constexpr int kFleeRadius = 120;
 inline constexpr UINT kDesktopPaintTimeoutMs = 50;
 
 // Registry: HKCU\Software\<kRegSubkey>\<value>
-inline constexpr wchar_t kRegSubkey[]     = L"Alex313031\\Kirby Pet";
-inline constexpr wchar_t kRegSpeed[]      = L"Speed";
-inline constexpr wchar_t kRegMode[]       = L"Mode";
-inline constexpr wchar_t kRegEraseColor[] = L"EraseColor";
-inline constexpr wchar_t kRegUseDesktop[] = L"UseDesktopColor";
-inline constexpr wchar_t kRegTray[]       = L"MinimizeToTray";
+// Speed, erase colour and the desktop-colour switch live under the same
+// subkey but are the library's (pet::EraseSettings); only the app's own
+// values are named here.
+inline constexpr wchar_t kRegSubkey[]       = L"Alex313031\\Kirby Pet";
+inline constexpr wchar_t kRegMode[]         = L"Mode";
+inline constexpr wchar_t kRegTray[]         = L"MinimizeToTray";
+inline constexpr wchar_t kRegUnderWindows[] = L"UnderWindows";
 
 // Window class of the on-screen vacuum sprite.
 inline constexpr wchar_t kPetWndClass[] = L"KirbyPetSprite";

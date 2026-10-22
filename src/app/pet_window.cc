@@ -1,5 +1,6 @@
-// The sprite window: a topmost popup that pet_lib drives. It never takes the
-// mouse - a pet that parks under the pointer must not eat the click.
+// The sprite window: a popup that pet_lib drives, riding on top of everything
+// or pinned to the desktop under every other window. It never takes the mouse
+// - a pet that parks under the pointer must not eat the click.
 
 #include "pet_window.h"
 
@@ -14,6 +15,16 @@ namespace petwin {
   // Windows 2000+. Resolved at run time rather than imported, so the binary
   // still loads on NT4, which gets the region-shaped fallback instead.
   typedef BOOL(WINAPI* FnSetLayeredWindowAttributes)(HWND, COLORREF, BYTE, DWORD);
+
+// winuser.h hides the layered-window constants when building with an NT4
+// WINVER. The function is resolved at run time, so the constants are all we
+// need, and their values have never changed.
+#ifndef WS_EX_LAYERED
+ #define WS_EX_LAYERED 0x00080000
+#endif
+#ifndef LWA_COLORKEY
+ #define LWA_COLORKEY 0x00000001
+#endif
 
   /* ------------------------------ Static state ------------------------------ */
 
@@ -33,17 +44,24 @@ namespace petwin {
   // mouse still lands on it.
   static bool s_layered = false;
 
+  // Where the sprite sits in the Z order: on top of every window (topmost), or
+  // at the bottom, where it travels under them all and only ever covers the
+  // desktop. Set before Create too; Create applies it.
+  static bool s_underWindows = false;
+
   // What Create was given and which display-table row the loaded frames are
   // for, kept so a resolution change can reload at the new size.
-  static HINSTANCE s_hInst                       = nullptr;
-  static const int (*s_frameIds)[pet::DIR_COUNT] = nullptr; // [pet::SpriteSet][pet::Dir]
-  static const pet::DisplayProfile* s_profile    = nullptr;
+  static HINSTANCE s_hInst                    = nullptr;
+  static const pet::FrameIds* s_frameIds      = nullptr;
+  static const pet::DisplayProfile* s_profile = nullptr;
+  static pet::LoadResult s_lastLoad           = pet::LOAD_OK;
 
   /* -------------------------- Forward declarations -------------------------- */
 
   static FnSetLayeredWindowAttributes ResolveSetLayeredWindowAttributes();
   static RECT VirtualScreen();
   static void MoveWindowTo(const POINT& pos);
+  static void ApplyZOrder();
   static bool LoadForProfile(const pet::DisplayProfile& profile);
   static void ApplyShape();
   static LRESULT CALLBACK PetWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);
@@ -68,7 +86,8 @@ namespace petwin {
   // scaled to its size. The old frames are only let go once the new ones are in.
   static bool LoadForProfile(const pet::DisplayProfile& profile) {
     pet::Sprites loaded = {};
-    if (!pet::LoadSprites(s_hInst, s_frameIds[profile.set], profile.spriteSize, &loaded)) {
+    s_lastLoad          = pet::LoadSpritesForProfile(s_hInst, *s_frameIds, profile, &loaded);
+    if (s_lastLoad != pet::LOAD_OK) {
       return false;
     }
     pet::FreeSprites(&s_sprites);
@@ -97,6 +116,17 @@ namespace petwin {
     SetWindowPos(s_hwnd, nullptr, pos.x, pos.y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
   }
 
+  // Puts the sprite where s_underWindows says. HWND_BOTTOM also drops the
+  // topmost status, and lands above the shell's desktop window (Progman),
+  // which Windows keeps bottommost of all - so "under windows" still shows
+  // over the wallpaper and icons. HWND_TOPMOST puts the status back. Every
+  // move after this is SWP_NOZORDER, so the position sticks; being shown
+  // with SW_SHOWNA (the NT4 turn path) keeps it too.
+  static void ApplyZOrder() {
+    SetWindowPos(s_hwnd, s_underWindows ? HWND_BOTTOM : HWND_TOPMOST, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+  }
+
   // Gives the window the current facing's outline. Layered: nothing to do, the
   // colour key shapes it per pixel at paint time. Fallback: the window region,
   // which SetWindowRgn takes ownership of, hence the fresh clone.
@@ -114,12 +144,16 @@ namespace petwin {
     return pet::ProfileForHeight(GetSystemMetrics(SM_CYSCREEN));
   }
 
-  bool Create(HINSTANCE hInst, const int frameIds[pet::SPRITE_SET_COUNT][pet::DIR_COUNT]) {
+  pet::LoadResult LastLoadResult() {
+    return s_lastLoad;
+  }
+
+  bool Create(HINSTANCE hInst, const pet::FrameIds& frameIds) {
     if (s_hwnd != nullptr) {
       return true;
     }
     s_hInst                            = hInst;
-    s_frameIds                         = frameIds;
+    s_frameIds                         = &frameIds;
     s_layered                          = (ResolveSetLayeredWindowAttributes() != nullptr);
     const pet::DisplayProfile& profile = ScreenProfile();
     if (!LoadForProfile(profile)) {
@@ -165,6 +199,7 @@ namespace petwin {
       ResolveSetLayeredWindowAttributes()(s_hwnd, kSpriteColorKey, 0, LWA_COLORKEY);
     }
     ApplyShape();
+    ApplyZOrder();                 // settle under the windows, if asked, before first showing
     ShowWindow(s_hwnd, SW_SHOWNA); // never steal focus from whatever's active
     UpdateWindow(s_hwnd);
     desktop::FindHandle();
@@ -184,7 +219,7 @@ namespace petwin {
   }
 
   void SetSpeed(int pixelsPerTick) {
-    s_vac.speed = std::clamp(pixelsPerTick, kSpeedMin, kSpeedMax);
+    s_vac.speed = std::clamp(pixelsPerTick, pet::kSpeedMin, pet::kSpeedMax);
   }
 
   void SetMode(Mode mode) {
@@ -193,6 +228,13 @@ namespace petwin {
 
   void SetEraseColor(COLORREF color) {
     s_eraseColor = color;
+  }
+
+  void SetUnderWindows(bool under) {
+    s_underWindows = under;
+    if (s_hwnd != nullptr) {
+      ApplyZOrder();
+    }
   }
 
   void UpdateBounds() {

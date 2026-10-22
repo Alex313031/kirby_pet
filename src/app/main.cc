@@ -25,19 +25,20 @@ static HWND s_speedLabel   = nullptr;
 static HWND s_speedSlider  = nullptr;
 static HWND s_followCheck  = nullptr;
 static HWND s_runawayCheck = nullptr;
+static HWND s_underCheck   = nullptr;
 static HWND s_eraseLabel   = nullptr;
 static HWND s_desktopCheck = nullptr;
 static HWND s_colorButton  = nullptr;
 static HWND s_swatch       = nullptr;
 
-// Erase color state. The swatch is painted with s_swatchBrush, which is
-// rebuilt whenever the effective color changes.
-static HBRUSH s_swatchBrush      = nullptr;
-static COLORREF s_customColor    = RGB_BLACK; // last color picked in the dialog
-static bool s_useDesktopColor    = true;      // erase to COLOR_DESKTOP (live) instead
-static COLORREF s_custColors[16] = {};        // ChooseColor's custom-palette slots
+// Speed, erase colour and the desktop-colour switch, as the library keeps
+// them. The swatch is painted with s_swatchBrush, which is rebuilt whenever
+// the effective colour changes.
+static pet::EraseSettings s_erase = {};
+static HBRUSH s_swatchBrush       = nullptr;
 
 static petwin::Mode s_mode = petwin::MODE_FOLLOW;
+static bool s_underWindows = false; // the vacuum travels under other windows
 static bool s_inTray       = false;
 
 // We always attach a console for logging; it's hidden unless --debug / one-shot
@@ -85,6 +86,7 @@ static bool CreateChildControls(HWND hWnd);
 static void LayoutChildren(HWND hWnd);
 static void LoadSettings(HWND hWnd);
 static void SaveSettings();
+static void ResetSettings(HWND hWnd);
 static COLORREF CurrentEraseColor();
 static void RefreshSwatch();
 static void ApplySettingsToPet();
@@ -180,8 +182,9 @@ static HWND MakeControl(HWND hWnd,
                          nullptr);
 }
 
-// Builds the speed slider, the two mode checkboxes, and the erase-color row.
-// Returns false if any control or the shared font fails to create.
+// Builds the speed slider, the two mode checkboxes, the under-windows
+// checkbox, and the erase-color row. Returns false if any control or the
+// shared font fails to create.
 static bool CreateChildControls(HWND hWnd) {
   s_uiFont = GetFont(0); // 8pt Tahoma, DPI-scaled (size <= 0 path)
 
@@ -192,6 +195,8 @@ static bool CreateChildControls(HWND hWnd) {
                                0, IDC_FOLLOW);
   s_runawayCheck = MakeControl(hWnd, L"BUTTON", L"Run away from the cursor",
                                WS_TABSTOP | BS_AUTOCHECKBOX, 0, IDC_RUNAWAY);
+  s_underCheck   = MakeControl(hWnd, L"BUTTON", L"Travel under other windows",
+                               WS_TABSTOP | BS_AUTOCHECKBOX, 0, IDC_UNDERWINDOWS);
   s_eraseLabel   = MakeControl(hWnd, L"STATIC", L"Erase to:", SS_LEFT, 0, IDC_STATIC);
   s_desktopCheck = MakeControl(hWnd, L"BUTTON", L"Use desktop background color",
                                WS_TABSTOP | BS_AUTOCHECKBOX, 0, IDC_DESKTOPCOLOR);
@@ -200,17 +205,17 @@ static bool CreateChildControls(HWND hWnd) {
   s_swatch = MakeControl(hWnd, L"STATIC", L"", SS_LEFT, WS_EX_CLIENTEDGE, IDC_SWATCH);
 
   if (s_speedLabel == nullptr || s_speedSlider == nullptr || s_followCheck == nullptr ||
-      s_runawayCheck == nullptr || s_eraseLabel == nullptr || s_desktopCheck == nullptr ||
-      s_colorButton == nullptr || s_swatch == nullptr) {
+      s_runawayCheck == nullptr || s_underCheck == nullptr || s_eraseLabel == nullptr ||
+      s_desktopCheck == nullptr || s_colorButton == nullptr || s_swatch == nullptr) {
     return false;
   }
 
-  SendMessageW(s_speedSlider, TBM_SETRANGE, TRUE, MAKELPARAM(kSpeedMin, kSpeedMax));
+  SendMessageW(s_speedSlider, TBM_SETRANGE, TRUE, MAKELPARAM(pet::kSpeedMin, pet::kSpeedMax));
   SendMessageW(s_speedSlider, TBM_SETTICFREQ, 4, 0);
 
   if (s_uiFont != nullptr) {
     const WPARAM font = reinterpret_cast<WPARAM>(s_uiFont);
-    const HWND all[]  = {s_speedLabel, s_speedSlider,  s_followCheck, s_runawayCheck,
+    const HWND all[]  = {s_speedLabel,  s_speedSlider, s_followCheck, s_runawayCheck, s_underCheck,
                          s_eraseLabel, s_desktopCheck, s_colorButton, s_swatch};
     for (HWND h : all) {
       SendMessageW(h, WM_SETFONT, font, TRUE);
@@ -230,7 +235,7 @@ static void LayoutChildren(HWND hWnd) {
   const int clientW = clientRect.right - clientRect.left;
   const int innerW  = clientW - kPadLeft * 2;
 
-  HDWP hdwp = BeginDeferWindowPos(8);
+  HDWP hdwp = BeginDeferWindowPos(9);
   int rowY  = kPadTop;
 
   // Row: "Speed: N" label, then the slider beside it.
@@ -244,7 +249,7 @@ static void LayoutChildren(HWND hWnd) {
   }
   rowY += kSliderHeight + kVGap;
 
-  // Rows: the two mode checkboxes.
+  // Rows: the two mode checkboxes, then the under-windows switch.
   if (hdwp != nullptr) {
     hdwp = DeferWindowPos(hdwp, s_followCheck, nullptr, kPadLeft, rowY, innerW, kControlHeight,
                           SWP_NOZORDER);
@@ -252,6 +257,11 @@ static void LayoutChildren(HWND hWnd) {
   rowY += kControlHeight + kVGap;
   if (hdwp != nullptr) {
     hdwp = DeferWindowPos(hdwp, s_runawayCheck, nullptr, kPadLeft, rowY, innerW, kControlHeight,
+                          SWP_NOZORDER);
+  }
+  rowY += kControlHeight + kVGap;
+  if (hdwp != nullptr) {
+    hdwp = DeferWindowPos(hdwp, s_underCheck, nullptr, kPadLeft, rowY, innerW, kControlHeight,
                           SWP_NOZORDER);
   }
   rowY += kControlHeight + kVGap * 2;
@@ -283,7 +293,7 @@ static void LayoutChildren(HWND hWnd) {
 /* ------------------------------- Settings --------------------------------- */
 
 static COLORREF CurrentEraseColor() {
-  return s_useDesktopColor ? pet::DefaultEraseColor() : s_customColor;
+  return pet::EffectiveEraseColor(s_erase);
 }
 
 static void RefreshSwatch() {
@@ -300,6 +310,7 @@ static void ApplySettingsToPet() {
   petwin::SetSpeed(static_cast<int>(SendMessageW(s_speedSlider, TBM_GETPOS, 0, 0)));
   petwin::SetMode(s_mode);
   petwin::SetEraseColor(CurrentEraseColor());
+  petwin::SetUnderWindows(s_underWindows);
 }
 
 // Keeps the two checkboxes mutually exclusive and pushes the mode to the pet.
@@ -320,17 +331,10 @@ static void UpdateSpeedLabel() {
 }
 
 static void PickColor(HWND hWnd) {
-  CHOOSECOLORW chooser = {};
-  chooser.lStructSize  = sizeof(chooser);
-  chooser.hwndOwner    = hWnd;
-  chooser.rgbResult    = s_customColor;
-  chooser.lpCustColors = s_custColors;
-  chooser.Flags        = CC_RGBINIT | CC_FULLOPEN;
-  if (!ChooseColorW(&chooser)) {
+  if (!pet::PickEraseColor(hWnd, &s_erase)) {
     return; // cancelled
   }
-  s_customColor     = chooser.rgbResult;
-  s_useDesktopColor = false; // picking a color implies "not the desktop's"
+  // The pick switched the desktop-colour setting off; show that.
   CheckDlgButton(hWnd, IDC_DESKTOPCOLOR, BST_UNCHECKED);
   EnableWindow(s_colorButton, TRUE);
   RefreshSwatch();
@@ -341,11 +345,10 @@ static void PickColor(HWND hWnd) {
 static void LoadSettings(HWND hWnd) {
   DWORD value = 0;
 
-  int speed = petwin::ScreenProfile().speed; // the display table's default for this screen
-  if (pet::RegReadDword(kRegSubkey, kRegSpeed, &value)) {
-    speed = std::clamp(static_cast<int>(value), kSpeedMin, kSpeedMax);
-  }
-  SendMessageW(s_speedSlider, TBM_SETPOS, TRUE, speed);
+  // Speed, colour and the desktop-colour switch are the library's, with the
+  // display table's speed for this screen as the default.
+  pet::LoadEraseSettings(kRegSubkey, petwin::ScreenProfile().speed, &s_erase);
+  SendMessageW(s_speedSlider, TBM_SETPOS, TRUE, s_erase.speed);
   UpdateSpeedLabel();
 
   s_mode = petwin::MODE_FOLLOW;
@@ -355,15 +358,14 @@ static void LoadSettings(HWND hWnd) {
   CheckDlgButton(hWnd, IDC_FOLLOW, s_mode == petwin::MODE_FOLLOW ? BST_CHECKED : BST_UNCHECKED);
   CheckDlgButton(hWnd, IDC_RUNAWAY, s_mode == petwin::MODE_RUNAWAY ? BST_CHECKED : BST_UNCHECKED);
 
-  if (pet::RegReadDword(kRegSubkey, kRegEraseColor, &value)) {
-    s_customColor = static_cast<COLORREF>(value);
+  s_underWindows = false;
+  if (pet::RegReadDword(kRegSubkey, kRegUnderWindows, &value)) {
+    s_underWindows = (value != 0);
   }
-  s_useDesktopColor = true;
-  if (pet::RegReadDword(kRegSubkey, kRegUseDesktop, &value)) {
-    s_useDesktopColor = (value != 0);
-  }
-  CheckDlgButton(hWnd, IDC_DESKTOPCOLOR, s_useDesktopColor ? BST_CHECKED : BST_UNCHECKED);
-  EnableWindow(s_colorButton, s_useDesktopColor ? FALSE : TRUE);
+  CheckDlgButton(hWnd, IDC_UNDERWINDOWS, s_underWindows ? BST_CHECKED : BST_UNCHECKED);
+
+  CheckDlgButton(hWnd, IDC_DESKTOPCOLOR, s_erase.useDesktopColor ? BST_CHECKED : BST_UNCHECKED);
+  EnableWindow(s_colorButton, s_erase.useDesktopColor ? FALSE : TRUE);
   RefreshSwatch();
 
   tray_mode = false;
@@ -374,12 +376,26 @@ static void LoadSettings(HWND hWnd) {
 }
 
 static void SaveSettings() {
-  const DWORD speed = static_cast<DWORD>(SendMessageW(s_speedSlider, TBM_GETPOS, 0, 0));
-  pet::RegWriteDword(kRegSubkey, kRegSpeed, speed);
+  s_erase.speed = static_cast<int>(SendMessageW(s_speedSlider, TBM_GETPOS, 0, 0));
+  pet::SaveEraseSettings(kRegSubkey, s_erase);
   pet::RegWriteDword(kRegSubkey, kRegMode, static_cast<DWORD>(s_mode));
-  pet::RegWriteDword(kRegSubkey, kRegEraseColor, static_cast<DWORD>(s_customColor));
-  pet::RegWriteDword(kRegSubkey, kRegUseDesktop, s_useDesktopColor ? 1u : 0u);
+  pet::RegWriteDword(kRegSubkey, kRegUnderWindows, s_underWindows ? 1u : 0u);
   pet::RegWriteDword(kRegSubkey, kRegTray, tray_mode ? 1u : 0u);
+}
+
+// Settings -> Reset Settings. Wipes what is saved, then reloads so every
+// default lands at once - the display table's speed for this screen, follow
+// mode, on top of other windows, erase to the desktop colour, no tray - on
+// the controls, in the menu, and in the pet. The defaults get saved again on the way out as usual.
+static void ResetSettings(HWND hWnd) {
+  if (MessageBoxW(hWnd, L"Reset all settings to their defaults?", L"Reset Settings",
+                  MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) != IDYES) {
+    return;
+  }
+  pet::RegDeleteSubkey(kRegSubkey);
+  LoadSettings(hWnd);
+  ApplySettingsToPet();
+  LOG(INFO) << L"Settings reset to defaults";
 }
 
 /* --------------------------------- Tray ----------------------------------- */
@@ -657,7 +673,7 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
       return DefWindowProcW(hWnd, message, wParam, lParam);
     case WM_SYSCOLORCHANGE:
       // The desktop background may have changed; track it if we're using it.
-      if (s_useDesktopColor) {
+      if (s_erase.useDesktopColor) {
         RefreshSwatch();
         ApplySettingsToPet();
       }
@@ -695,9 +711,15 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
           ApplyMode(IsDlgButtonChecked(hWnd, IDC_RUNAWAY) == BST_CHECKED ? petwin::MODE_RUNAWAY
                                                                          : petwin::MODE_IDLE);
           break;
+        case IDC_UNDERWINDOWS:
+          s_underWindows = (IsDlgButtonChecked(hWnd, IDC_UNDERWINDOWS) == BST_CHECKED);
+          petwin::SetUnderWindows(s_underWindows);
+          LOG(INFO) << L"Vacuum travels " << (s_underWindows ? L"under" : L"over")
+                    << L" other windows";
+          break;
         case IDC_DESKTOPCOLOR:
-          s_useDesktopColor = (IsDlgButtonChecked(hWnd, IDC_DESKTOPCOLOR) == BST_CHECKED);
-          EnableWindow(s_colorButton, s_useDesktopColor ? FALSE : TRUE);
+          s_erase.useDesktopColor = (IsDlgButtonChecked(hWnd, IDC_DESKTOPCOLOR) == BST_CHECKED);
+          EnableWindow(s_colorButton, s_erase.useDesktopColor ? FALSE : TRUE);
           RefreshSwatch();
           ApplySettingsToPet();
           break;
@@ -707,6 +729,9 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
         case IDM_TRAY:
           tray_mode = ToggleMenuCheck(hWnd, IDM_TRAY);
           LOG(INFO) << L"Minimize to tray " << (tray_mode ? L"on" : L"off");
+          break;
+        case IDM_RESET:
+          ResetSettings(hWnd);
           break;
         case IDM_SHOW:
           RestoreFromTray(hWnd);
@@ -773,12 +798,16 @@ bool InitApp(HWND hWnd) {
   }
   // Both baked sets, pet::SpriteSet by pet::Dir. The pet window picks the set
   // and the size to scale it to for this screen from the display table.
-  static const int kFrameIds[pet::SPRITE_SET_COUNT][pet::DIR_COUNT] = {
+  static const pet::FrameIds kFrameIds = {
       {IDB_PET_UP_1X, IDB_PET_DOWN_1X, IDB_PET_LEFT_1X, IDB_PET_RIGHT_1X},
       {IDB_PET_UP_2X, IDB_PET_DOWN_2X, IDB_PET_LEFT_2X, IDB_PET_RIGHT_2X}};
+  // Settled before Create so the sprite first appears where it belongs,
+  // rather than on top for a tick and then dropping under the windows.
+  petwin::SetUnderWindows(s_underWindows);
   if (!petwin::Create(g_hInstance, kFrameIds)) {
-    LOG(ERROR) << L"Failed to create the pet window (sprites missing or not 32-bpp?)";
-    ErrorBox(hWnd, L"Kirby Pet", L"Could not load the vacuum sprites!");
+    const std::wstring reason = pet::LoadResultText(petwin::LastLoadResult());
+    LOG(ERROR) << L"Failed to create the pet window: " << reason;
+    ErrorBox(hWnd, L"Kirby Pet", L"Could not load the vacuum sprites: " + reason);
     return false;
   }
   ApplySettingsToPet();
@@ -807,6 +836,8 @@ bool LaunchHelp(HWND hWnd) {
                  L"Follow the cursor - it chases the mouse pointer.\n"
                  L"Run away from the cursor - it flees when the pointer gets close.\n"
                  L"Neither - it stays where it is.\n\n"
+                 L"Travel under other windows - it keeps to the desktop and passes\n"
+                 L"beneath your windows instead of riding on top of them.\n\n"
                  L"The vacuum never gets in the way: clicks go straight through it\n"
                  L"to whatever is underneath. Bring this window back from the\n"
                  L"taskbar, or from the tray icon when minimize-to-tray is on.");
