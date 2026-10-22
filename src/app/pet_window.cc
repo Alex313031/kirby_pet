@@ -4,6 +4,8 @@
 
 #include "pet_window.h"
 
+#include <cstring> // memcpy
+
 #include "constants.h"
 #include "desktop.h"
 #include "globals.h"
@@ -49,10 +51,11 @@ namespace petwin {
   // desktop. Set before Create too; Create applies it.
   static bool s_underWindows = false;
 
-  // What Create was given and which display-table row the loaded frames are
-  // for, kept so a resolution change can reload at the new size.
+  // What Create was given (the IDs copied, so the caller's array need not
+  // outlive the call) and which display-table row the loaded frames are for,
+  // kept so a resolution change can reload at the new size.
   static HINSTANCE s_hInst                    = nullptr;
-  static const pet::FrameIds* s_frameIds      = nullptr;
+  static pet::FrameIds s_frameIds             = {};
   static const pet::DisplayProfile* s_profile = nullptr;
   static pet::LoadResult s_lastLoad           = pet::LOAD_OK;
 
@@ -86,7 +89,7 @@ namespace petwin {
   // scaled to its size. The old frames are only let go once the new ones are in.
   static bool LoadForProfile(const pet::DisplayProfile& profile) {
     pet::Sprites loaded = {};
-    s_lastLoad          = pet::LoadSpritesForProfile(s_hInst, *s_frameIds, profile, &loaded);
+    s_lastLoad          = pet::LoadSpritesForProfile(s_hInst, s_frameIds, profile, &loaded);
     if (s_lastLoad != pet::LOAD_OK) {
       return false;
     }
@@ -152,8 +155,8 @@ namespace petwin {
     if (s_hwnd != nullptr) {
       return true;
     }
-    s_hInst                            = hInst;
-    s_frameIds                         = &frameIds;
+    s_hInst = hInst;
+    memcpy(s_frameIds, frameIds, sizeof(s_frameIds));
     s_layered                          = (ResolveSetLayeredWindowAttributes() != nullptr);
     const pet::DisplayProfile& profile = ScreenProfile();
     if (!LoadForProfile(profile)) {
@@ -269,8 +272,19 @@ namespace petwin {
     GetCursorPos(&cur);
     switch (s_mode) {
       case MODE_FOLLOW:
-        // Park centred under the cursor with the nozzle just above it.
-        pet::VacuumSetTarget(&s_vac, cur.x - s_vac.size.cx / 2, cur.y - s_vac.size.cy + 1);
+        if (s_layered && !kForceFollowGap) {
+          // Park centred under the cursor with the nozzle just above it. Only
+          // safe because WS_EX_TRANSPARENT passes every click straight through.
+          pet::VacuumSetTarget(&s_vac, cur.x - s_vac.size.cx / 2, cur.y - s_vac.size.cy + 1);
+        } else {
+          // Region-shaped fallback (or kForceFollowGap): HTTRANSPARENT only
+          // hands a click on to windows of our own thread, so a sprite under
+          // the pointer would eat every click meant for other apps. Heel just
+          // below and right of the pointer instead, where it sits clear once
+          // parked - it can still pass under the pointer on the way there, and
+          // the bounds clamp can pin it under it at the screen's far edge.
+          pet::VacuumSetTarget(&s_vac, cur.x + kFollowGap, cur.y + kFollowGap);
+        }
         break;
 
       case MODE_RUNAWAY: {

@@ -62,6 +62,13 @@ inline constexpr UINT kTickMs      = 50;
 // Run-away mode: flee when the cursor comes within this many pixels of the
 // vacuum's centre, running this far away from it.
 inline constexpr int kFleeRadius = 120;
+// Follow mode normally parks the sprite under the pointer, which is only safe
+// on the layered window (2000+), where WS_EX_TRANSPARENT passes every click
+// through. The region-shaped (NT4) fallback would eat clicks meant for other
+// apps, so there the sprite heels kFollowGap pixels below and right of the
+// pointer instead. kForceFollowGap applies the heel on every window kind.
+inline constexpr bool kForceFollowGap = false;
+inline constexpr int kFollowGap       = 16;
 // How long to wait for Explorer to finish repainting the desktop before we
 // paint the trail over it (see desktop::EraseOnDesktop). Explorer normally
 // answers in well under a millisecond; this only matters if it is hung.

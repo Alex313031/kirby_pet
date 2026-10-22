@@ -2,7 +2,7 @@
 ; Only for Inno Setup 5.x to support Windows 2000/XP
 ; Tested with ISS 5.6.1
 
-#define AppVer "0.0.5"
+#define AppVer "0.0.6"
 #define AppName "Kirby Pet"
 #define ExeName "kirby_pet"
 #define ScrName "kirby_scr"

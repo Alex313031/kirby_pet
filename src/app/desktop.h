@@ -7,8 +7,9 @@
 // the wallpaper so the vacuumed trail can be drawn straight onto it.
 namespace desktop {
 
-  // Locates the desktop's drawing window - the SysListView32 under Progman's
-  // SHELLDLL_DefView, or the Active Desktop's Internet Explorer_Server - and
+  // Locates the desktop's drawing window - the SysListView32 under the
+  // SHELLDLL_DefView of Progman (or of a WorkerW, where Windows 8+ may have
+  // moved it), or the Active Desktop's Internet Explorer_Server - and
   // falls back to GetDesktopWindow() on shells without one. Cheap enough to
   // re-run now and then in case Explorer restarted.
   HWND FindHandle();

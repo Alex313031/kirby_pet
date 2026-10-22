@@ -21,8 +21,9 @@ namespace petwin {
   const pet::DisplayProfile& ScreenProfile();
 
   // Loads the frames the screen's profile calls for out of `frameIds` (both
-  // baked sets), registers the window class, and shows the sprite parked at
-  // the top-left of the screen. False on failure; LastLoadResult says why.
+  // baked sets; the IDs are copied, so the array need not outlive the call),
+  // registers the window class, and shows the sprite parked at the top-left
+  // of the screen. False on failure; LastLoadResult says why.
   bool Create(HINSTANCE hInst, const pet::FrameIds& frameIds);
   void Destroy();
 

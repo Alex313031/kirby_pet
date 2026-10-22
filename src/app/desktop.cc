@@ -44,9 +44,12 @@ namespace desktop {
     wchar_t cls[32] = {};
     switch (lParam) {
       case PASS_TOP:
-        // Top level: find Program Manager, then look inside it.
+        // Top level: find Program Manager and look inside it. Windows 8 and
+        // later can re-parent the shell view into one of the WorkerW windows
+        // (once any wallpaper tool has sent Progman the 0x052C message), so
+        // those are searched too; the ones without a view just come up empty.
         GetClassNameW(hWnd, cls, 31);
-        if (lstrcmpiW(cls, L"Progman") == 0) {
+        if (lstrcmpiW(cls, L"Progman") == 0 || lstrcmpiW(cls, L"WorkerW") == 0) {
           EnumChildWindows(hWnd, Hunter, PASS_DEFVIEW);
           return s_desktop == nullptr; // keep enumerating until one is found
         }

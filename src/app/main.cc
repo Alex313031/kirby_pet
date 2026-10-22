@@ -41,13 +41,21 @@ static petwin::Mode s_mode = petwin::MODE_FOLLOW;
 static bool s_underWindows = false; // the vacuum travels under other windows
 static bool s_inTray       = false;
 
-// We always attach a console for logging; it's hidden unless --debug / one-shot
-// text output asked for it.
-static bool s_console_hidden = false;
+// Set while WM_CLOSE minimizes the window to the taskbar because the tray
+// refused our icon: the WM_SIZE that minimize sends would otherwise try the
+// tray a second time and warn about it twice.
+static bool s_minimizeIsFallback = false;
 
-// Tray icon plumbing.
+// True once LoadSettings has filled the controls and the statics from the
+// registry. SaveSettings writes nothing before that, so a window torn down
+// part-way through WM_CREATE can't persist a blank slider as speed 0.
+static bool s_settingsLoaded = false;
+
+// Tray icon plumbing. TaskbarCreated is the shell's "Explorer (re)started"
+// broadcast: every tray icon is gone then and has to be added again.
 static constexpr UINT WM_TRAYICON = WM_APP + 1;
 static constexpr UINT kTrayIconId = 1;
+static UINT s_taskbarCreatedMsg   = 0;
 
 /* -------------------------------- Globals --------------------------------- */
 
@@ -93,10 +101,10 @@ static void ApplySettingsToPet();
 static void ApplyMode(petwin::Mode mode);
 static void UpdateSpeedLabel();
 static void PickColor(HWND hWnd);
-static void AddTrayIcon(HWND hWnd);
+static bool AddTrayIcon(HWND hWnd);
 static void RemoveTrayIcon(HWND hWnd);
 static void ShowTrayMenu(HWND hWnd);
-static void MinimizeToTray(HWND hWnd);
+static bool MinimizeToTray(HWND hWnd);
 static void RestoreFromTray(HWND hWnd);
 
 /* ---------------------------- Static Functions ---------------------------- */
@@ -373,9 +381,13 @@ static void LoadSettings(HWND hWnd) {
     tray_mode = (value != 0);
   }
   CheckMenuItem(GetMenu(hWnd), IDM_TRAY, MF_BYCOMMAND | (tray_mode ? MF_CHECKED : MF_UNCHECKED));
+  s_settingsLoaded = true;
 }
 
 static void SaveSettings() {
+  if (!s_settingsLoaded) {
+    return; // nothing was ever loaded into the controls, so nothing to write back
+  }
   s_erase.speed = static_cast<int>(SendMessageW(s_speedSlider, TBM_GETPOS, 0, 0));
   pet::SaveEraseSettings(kRegSubkey, s_erase);
   pet::RegWriteDword(kRegSubkey, kRegMode, static_cast<DWORD>(s_mode));
@@ -400,7 +412,9 @@ static void ResetSettings(HWND hWnd) {
 
 /* --------------------------------- Tray ----------------------------------- */
 
-static void AddTrayIcon(HWND hWnd) {
+// False if the shell refused the icon (no Explorer running, or an NT4 shell
+// rejecting the struct): the caller must not hide the window then.
+static bool AddTrayIcon(HWND hWnd) {
   NOTIFYICONDATAW nid = {};
   // The original (NT4 / IE3) layout, not sizeof: we only use the fields it
   // has, every later shell still accepts it, and NT4's shell32 4.0 rejects
@@ -413,7 +427,7 @@ static void AddTrayIcon(HWND hWnd) {
   nid.uCallbackMessage = WM_TRAYICON;
   nid.hIcon            = kSmallIcon;
   lstrcpynW(nid.szTip, APP_NAME, static_cast<int>(sizeof(nid.szTip) / sizeof(nid.szTip[0])));
-  Shell_NotifyIconW(NIM_ADD, &nid);
+  return Shell_NotifyIconW(NIM_ADD, &nid) != FALSE;
 }
 
 static void RemoveTrayIcon(HWND hWnd) {
@@ -449,12 +463,18 @@ static void ShowTrayMenu(HWND hWnd) {
   DestroyMenu(menu);
 }
 
-static void MinimizeToTray(HWND hWnd) {
+// False if there is no tray icon to come back from, in which case the window
+// is left alone: hiding it then would strand it with no way to restore.
+static bool MinimizeToTray(HWND hWnd) {
   if (!s_inTray) {
-    AddTrayIcon(hWnd);
+    if (!AddTrayIcon(hWnd)) {
+      LOG(WARN) << L"Could not add the tray icon; leaving the window on the taskbar";
+      return false;
+    }
     s_inTray = true;
   }
   ShowWindow(hWnd, SW_HIDE);
+  return true;
 }
 
 static void RestoreFromTray(HWND hWnd) {
@@ -555,13 +575,19 @@ int APIENTRY wWinMain(HINSTANCE hInstance,
     LocalFree(argv);
   }
 
-  // Open a conhost window when we have anything text-y to show.
-  logging::LogDest kLogSink           = logging::LOG_TO_STDERR;
-  static const std::wstring file_name = std::wstring(INTERNAL_NAME);
-  const std::wstring kLogFile         = file_name + L".log";
+  // Where the log goes: a console, or nowhere - never a file. A console only
+  // when there is something text-y to show right now, --version / --help
+  // (one-shot output) or --debug (live logging): one we allocate flashes up
+  // on every launch and can't be hidden under Windows Terminal, and one
+  // inherited from the command prompt that launched us is the user's own
+  // window, not ours to hide. With no sink, LOG() lines go nowhere (the
+  // logger only pings OutputDebugString).
+  logging::LogDest logSink = logging::LOG_NONE;
+  if (g_show_version || g_show_help || g_debug_mode) {
+    logSink = logging::LOG_TO_STDERR;
+  }
   logging::LogInitSettings LoggingSettings;
-  LoggingSettings.log_sink          = kLogSink;
-  LoggingSettings.logfile_name      = kLogFile;
+  LoggingSettings.log_sink          = logSink;
   LoggingSettings.app_name          = appTitle;
   LoggingSettings.show_func_sigs    = false;
   LoggingSettings.show_line_numbers = false;
@@ -590,21 +616,6 @@ int APIENTRY wWinMain(HINSTANCE hInstance,
     return 1;
   }
 
-  // Hide the console unless a mode wants it visible now (--debug for live
-  // logging, --version / --help for one-shot output). Logs still flow to the
-  // hidden stream.
-  if (!g_debug_mode && !g_show_version && !g_show_help) {
-    if (logging::HideConsole()) {
-      s_console_hidden = true;
-    } else {
-      // No window to hide (NT4, if csrss is too slow for the title lookup). A
-      // console we can't hide is one the user can close, and closing a console
-      // ends the process that owns it - so better no console at all. The log
-      // file still gets everything.
-      logging::DetachConsoleImpl();
-    }
-  }
-
   // Open our window now
   if (!InitWindow(g_hInstance, szClassName, appTitle, iCmdShow)) {
     return 4;
@@ -616,7 +627,14 @@ int APIENTRY wWinMain(HINSTANCE hInstance,
   }
 
   MSG msg;
-  while (GetMessageW(&msg, nullptr, 0, 0)) {
+  int got = 0;
+  while ((got = GetMessageW(&msg, nullptr, 0, 0)) != 0) {
+    if (got == -1) {
+      // GetMessage reports an error as -1, which a plain while() takes as
+      // true; without this check an invalid-handle error spins forever.
+      LOG(ERROR) << L"GetMessage failed: " << logging::Hex(GetLastError());
+      break;
+    }
     // Accelerator first so menu shortcuts win over dialog navigation.
     if (TranslateAcceleratorW(mainHwnd, hAccel, &msg)) {
       continue;
@@ -632,7 +650,7 @@ int APIENTRY wWinMain(HINSTANCE hInstance,
   if (hAccel != nullptr) {
     DestroyAcceleratorTable(hAccel);
   }
-  return static_cast<int>(msg.wParam);
+  return got == -1 ? 6 : static_cast<int>(msg.wParam);
 }
 
 LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
@@ -641,6 +659,7 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
       if (mainHwnd == nullptr) {
         mainHwnd = hWnd; // Prevent race condition in InitApp
       }
+      s_taskbarCreatedMsg = RegisterWindowMessageW(L"TaskbarCreated");
       CenterWindowOnScreen(hWnd, /*multimon=*/true);
       if (!CreateChildControls(hWnd)) {
         LOG(ERROR) << L"Failed to create child controls!";
@@ -682,7 +701,7 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
       petwin::UpdateBounds();
       break;
     case WM_SIZE:
-      if (wParam == SIZE_MINIMIZED && tray_mode) {
+      if (wParam == SIZE_MINIMIZED && tray_mode && !s_minimizeIsFallback) {
         MinimizeToTray(hWnd);
       }
       break;
@@ -756,7 +775,13 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
       // With tray mode on, the X tucks the panel away and the pet keeps
       // running; otherwise it's a normal exit.
       if (tray_mode) {
-        MinimizeToTray(hWnd);
+        if (!MinimizeToTray(hWnd)) {
+          // No tray icon: keep it reachable from the taskbar. ShowWindow sends
+          // WM_SIZE before it returns, so the flag only needs to span the call.
+          s_minimizeIsFallback = true;
+          ShowWindow(hWnd, SW_MINIMIZE);
+          s_minimizeIsFallback = false;
+        }
       } else {
         ShutDownApp();
       }
@@ -764,6 +789,14 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
     case WM_QUERYENDSESSION:
       LOG(DEBUG) << L"Window station is going down now!";
       return TRUE;
+    case WM_ENDSESSION:
+      // The session really is ending. The process is killed after this and
+      // WM_DESTROY never comes, so persist now or lose this session's changes.
+      if (wParam) {
+        SaveSettings();
+        LOG(INFO) << L"Settings saved for session end";
+      }
+      return 0;
     case WM_DESTROY:
       KillTimer(hWnd, kTickTimerId);
       SaveSettings();
@@ -787,6 +820,12 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
       logging::DeInitLogging(g_hInstance);
       break;
     default:
+      if (message != 0 && message == s_taskbarCreatedMsg && s_inTray) {
+        // Explorer restarted and took our icon with it; put it back so the
+        // hidden window stays reachable.
+        AddTrayIcon(hWnd);
+        break;
+      }
       return DefWindowProcW(hWnd, message, wParam, lParam);
   }
   return 0;
