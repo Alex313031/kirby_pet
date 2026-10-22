@@ -215,7 +215,7 @@ static bool CreateChildControls(HWND hWnd) {
 
   if (s_uiFont != nullptr) {
     const WPARAM font = reinterpret_cast<WPARAM>(s_uiFont);
-    const HWND all[]  = {s_speedLabel,  s_speedSlider, s_followCheck, s_runawayCheck, s_underCheck,
+    const HWND all[]  = {s_speedLabel, s_speedSlider,  s_followCheck, s_runawayCheck, s_underCheck,
                          s_eraseLabel, s_desktopCheck, s_colorButton, s_swatch};
     for (HWND h : all) {
       SendMessageW(h, WM_SETFONT, font, TRUE);
