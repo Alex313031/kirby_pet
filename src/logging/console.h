@@ -30,9 +30,12 @@ namespace logging {
   bool ShowConsole(const bool activate);
 
   // Hides (but doesn't close or empty stdout) console window if it exists.
+  // Refuses (false) when the console was inherited from the parent process:
+  // that is the user's command prompt, and hiding it leaves it hidden for good.
   bool HideConsole();
 
   // Toggles hide/show state of console, and whether to activate the window if showing.
+  // Same inherited-console refusal as HideConsole.
   bool ToggleShowConsole(const bool activate);
 
   // Opens a console if app wasn't launched from command line, and syncs all logging output to it

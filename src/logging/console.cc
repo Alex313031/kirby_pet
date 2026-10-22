@@ -9,7 +9,11 @@ namespace logging {
   // For tracking console attach state.
   volatile bool console_attached        = false;
   static ATTACH_CONSOLE_ pAttachConsole = nullptr;
-}
+  // True when the console is the parent process's (AttachConsole succeeded)
+  // rather than one we allocated. That is the user's own command prompt, so
+  // HideConsole / ToggleShowConsole refuse to touch it.
+  static bool console_inherited = false;
+} // namespace logging
 
 bool logging::GetIsConsoleAttached() {
   if (GetCurrentConsole() != nullptr) {
@@ -58,7 +62,8 @@ bool logging::DetachConsoleImpl() {
     return true;
   }
   if (FreeConsole()) {
-    console_attached = false;
+    console_attached  = false;
+    console_inherited = false;
     return true;
   } else {
     const std::wstring msg =
@@ -161,6 +166,12 @@ bool logging::HideConsole() {
     LOG(WARN) << L"Console not attached.";
     return false;
   }
+  if (console_inherited) {
+    // Attached to the console of whatever launched us: hiding that would
+    // make the user's command prompt vanish, and nothing brings it back.
+    LOG(WARN) << L"Console belongs to the parent process; not hiding it.";
+    return false;
+  }
   ShowWindow(console, SW_HIDE);
   return true;
 }
@@ -170,6 +181,10 @@ bool logging::ToggleShowConsole(const bool activate) {
   const HWND console  = GetCurrentConsole();
   if (console == nullptr) {
     LOG(WARN) << L"Console not attached.";
+    return false;
+  }
+  if (console_inherited) {
+    LOG(WARN) << L"Console belongs to the parent process; not toggling it.";
     return false;
   }
   // ShowWindow's BOOL return is "was previously visible", not success;
@@ -240,6 +255,8 @@ bool logging::RouteStdioToConsole(bool create_console_if_not_found) {
                     MB_OK | MB_ICONWARNING);
         return false;
       }
+    } else {
+      console_inherited = true; // the launching prompt's console, not ours
     }
   }
 

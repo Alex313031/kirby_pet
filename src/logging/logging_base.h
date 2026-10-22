@@ -50,24 +50,31 @@
  #include <SDKDDKVer.h> // Doesn't exist in MinGW
 #endif
 
-// Macro to convert to string
+// Macro to convert to string. Identical to the block in pet_version.h, and
+// guarded the same way, so it doesn't matter which header a translation unit
+// pulls in first: both define the same STRINGIZE / WIDEN / _VERSION.
 #if !defined(_STRINGIZER_)
  #define _STRINGIZER_
  #define _STRINGIZER(in) #in
  #define STRINGIZE(in) _STRINGIZER(in)
+ // Wide-string variant: L ## "x" -> L"x". Two levels so the argument expands
+ // before the L## paste widens the resulting narrow literal.
+ #define _WIDEN(in) L ## in
+ #define WIDEN(in) _WIDEN(in)
 #endif // !defined(_STRINGIZER_)
 
-// Main version constant
+// Main version constant: L"major.minor.build", always wide, like every other
+// string in this library.
 #ifndef _VERSION
  // Run stringizer above
- #define _VERSION(major,minor,build) STRINGIZE(major) "." STRINGIZE(minor) "." STRINGIZE(build)
+ #define _VERSION(major,minor,build) WIDEN(STRINGIZE(major.minor.build))
 #endif // _VERSION
 
 // These next few lines are where we control version number and copyright year
 // Adhere to semver > semver.org
 #define LOGGER_MAJOR_VERSION 0
-#define LOGGER_MINOR_VERSION 2
-#define LOGGER_BUILD_VERSION 9
+#define LOGGER_MINOR_VERSION 3
+#define LOGGER_BUILD_VERSION 0
 
 #define LOGGER_VERSION_STRING _VERSION(LOGGER_MAJOR_VERSION, LOGGER_MINOR_VERSION, LOGGER_BUILD_VERSION)
 
