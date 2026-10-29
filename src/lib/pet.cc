@@ -410,9 +410,9 @@ namespace pet {
 
   /* ------------------------------- Movement --------------------------------- */
 
-  void VacuumSetArea(Vacuum* vacuum, const RECT& area) {
+  bool VacuumSetArea(Vacuum* vacuum, const RECT& area) {
     if (vacuum == nullptr) {
-      return;
+      return false;
     }
     vacuum->bounds.left   = area.left;
     vacuum->bounds.top    = area.top;
@@ -429,25 +429,27 @@ namespace pet {
     vacuum->pos.y    = std::clamp(vacuum->pos.y, vacuum->bounds.top, vacuum->bounds.bottom);
     vacuum->target.x = std::clamp(vacuum->target.x, vacuum->bounds.left, vacuum->bounds.right);
     vacuum->target.y = std::clamp(vacuum->target.y, vacuum->bounds.top, vacuum->bounds.bottom);
+    return true;
   }
 
-  void VacuumInit(Vacuum* vacuum, const RECT& area, const SIZE& spriteSize, int speed) {
+  bool VacuumInit(Vacuum* vacuum, const RECT& area, const SIZE& spriteSize, int speed) {
     if (vacuum == nullptr) {
-      return;
+      return false;
     }
     vacuum->size     = spriteSize;
     vacuum->pos.x    = area.left; // SetArea clamps this into the derived bounds
     vacuum->pos.y    = area.top;
     vacuum->target.x = area.left;
     vacuum->target.y = area.top;
-    VacuumSetArea(vacuum, area);
+    VacuumSetArea(vacuum, area); // can't fail: vacuum was just checked
     vacuum->facing = DIR_DOWN;
     vacuum->speed  = std::clamp(speed, kSpeedMin, kSpeedMax);
+    return true;
   }
 
-  void VacuumSetTarget(Vacuum* vacuum, int targetX, int targetY) {
+  bool VacuumSetTarget(Vacuum* vacuum, int targetX, int targetY) {
     if (vacuum == nullptr) {
-      return;
+      return false;
     }
     // Clamped, so "past the edge" means "as far that way as it can go" and a
     // target is never somewhere the vacuum can't actually reach.
@@ -455,6 +457,7 @@ namespace pet {
         std::clamp(static_cast<LONG>(targetX), vacuum->bounds.left, vacuum->bounds.right);
     vacuum->target.y =
         std::clamp(static_cast<LONG>(targetY), vacuum->bounds.top, vacuum->bounds.bottom);
+    return true;
   }
 
   bool VacuumAtTarget(const Vacuum* vacuum) {
@@ -564,24 +567,29 @@ namespace pet {
 
   /* ------------------------------- Settings --------------------------------- */
 
-  void LoadEraseSettings(const wchar_t* subkey, int defaultSpeed, EraseSettings* settings) {
+  bool LoadEraseSettings(const wchar_t* subkey, int defaultSpeed, EraseSettings* settings) {
     if (settings == nullptr) {
-      return;
+      return false;
     }
     DWORD value               = 0;
+    bool found                = false;
     settings->speed           = std::clamp(defaultSpeed, kSpeedMin, kSpeedMax);
     settings->customColor     = RGB(0, 0, 0);
     settings->useDesktopColor = true;
     ZeroMemory(settings->customPalette, sizeof(settings->customPalette));
     if (RegReadDword(subkey, kRegSpeed, &value)) {
       settings->speed = std::clamp(static_cast<int>(value), kSpeedMin, kSpeedMax);
+      found           = true;
     }
     if (RegReadDword(subkey, kRegEraseColor, &value)) {
       settings->customColor = static_cast<COLORREF>(value);
+      found                 = true;
     }
     if (RegReadDword(subkey, kRegUseDesktop, &value)) {
       settings->useDesktopColor = (value != 0);
+      found                     = true;
     }
+    return found;
   }
 
   bool SaveEraseSettings(const wchar_t* subkey, const EraseSettings& settings) {

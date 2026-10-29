@@ -109,7 +109,9 @@ namespace pet {
 
   // [[nodiscard]] marks every result that is a verdict (did it work?) or a
   // resource (a region to own): dropping one is a bug the compiler can point
-  // out. Plain queries - colours, text, the step's "did it move" - are not.
+  // out. Plain queries - colours, text, the step's "did it move", whether any
+  // setting was saved - are not, and nor are the movement setters, whose
+  // false is only ever a null vacuum: a programming error, not a condition.
 
   /* ------------------------------- Sprites ---------------------------------- */
 
@@ -147,16 +149,17 @@ namespace pet {
   // Sets `vacuum` up to roam inside `area` (exclusive right/bottom, e.g. the
   // virtual screen or a client rect) with a sprite of `spriteSize`, parked at
   // area's top-left and facing down. `speed` is clamped to kSpeedMin..Max.
-  void VacuumInit(Vacuum* vacuum, const RECT& area, const SIZE& spriteSize, int speed);
+  // These three are false only for a null `vacuum`.
+  bool VacuumInit(Vacuum* vacuum, const RECT& area, const SIZE& spriteSize, int speed);
 
   // Aims the vacuum. The target is clamped into `bounds`, so a point past the
   // edge means "as far that way as it can go" and VacuumStep's false always
   // means "arrived".
-  void VacuumSetTarget(Vacuum* vacuum, int targetX, int targetY);
+  bool VacuumSetTarget(Vacuum* vacuum, int targetX, int targetY);
 
   // Re-bounds `vacuum` to a new `area` (e.g. after WM_DISPLAYCHANGE), keeping
   // its position and target but clamping both back inside if the area shrank.
-  void VacuumSetArea(Vacuum* vacuum, const RECT& area);
+  bool VacuumSetArea(Vacuum* vacuum, const RECT& area);
 
   // Advances one tick toward the target: runs at `speed`, jumps the last gap
   // when closer than that, and turns to face the dominant axis of the move.
@@ -194,7 +197,9 @@ namespace pet {
   // Fills `settings` from HKCU\Software\<subkey>, falling back to
   // `defaultSpeed` (the display table's, usually), black, and the desktop
   // colour for anything not saved. The speed is clamped to kSpeedMin..Max.
-  void LoadEraseSettings(const wchar_t* subkey, int defaultSpeed, EraseSettings* settings);
+  // True if at least one saved value was found; false means every field is a
+  // default - a first run, or the run after a reset.
+  bool LoadEraseSettings(const wchar_t* subkey, int defaultSpeed, EraseSettings* settings);
 
   // Writes the three persisted fields back. False if any write failed.
   [[nodiscard]] bool SaveEraseSettings(const wchar_t* subkey, const EraseSettings& settings);
