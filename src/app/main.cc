@@ -5,6 +5,9 @@
 
 #include "main.h"
 
+#include <cstdlib> // system
+#include <cwchar>  // wcscmp
+
 #include <pet_lib.h>
 
 #include "constants.h"

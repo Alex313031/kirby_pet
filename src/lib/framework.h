@@ -9,6 +9,10 @@
  #define NOMINMAX
 #endif
 
+// Only what the lib's own sources reach for through this header (IWYU, per
+// project): pet.cc and pet.h. Anything a single file needs beyond these, it
+// includes itself.
+
 // On MSVC, <windows.h> defines a small subset of NTSTATUS codes, which then
 // conflict with the full set in <ntstatus.h>. WIN32_NO_STATUS suppresses those
 // definitions so <ntstatus.h> can own them without redefinition errors.
@@ -20,24 +24,15 @@
 #ifdef _MSC_VER
  #undef WIN32_NO_STATUS
 #endif
-#include <commctrl.h> // Common Controls
-#include <commdlg.h>  // Common dialogs
-#include <shellapi.h> // Shell functions
+#include <commdlg.h>  // ChooseColor (PickEraseColor)
 #include <ntstatus.h> // Full NTSTATUS codes (e.g. STATUS_SUCCESS)
 
-// C Runtime Headers
-#include <tchar.h> // For TCHAR, and automatically deducing wchar_t type
-
 // C++ STL Headers
-#include <algorithm> // std::min / std::max
-#include <atomic>    // std::atomic bool
-#include <cmath>     // std::round / std::lround
-#include <iomanip>   // std::setprecision
-#include <iostream>  // Console output and ostringstream
-#include <limits>    // Numeric limits
-#include <sstream>   // std::wostringstream
-#include <string>    // std::string / std::wstring
-#include <vector>    // Vector storage
+#include <algorithm> // std::min / std::max / std::clamp
+#include <cmath>     // std::sqrt / std::lround
+#include <limits>    // std::numeric_limits (the display table's catch-all row)
+#include <string>    // std::wstring (registry paths)
+#include <vector>    // std::vector (the alpha region's rects)
 
 #ifndef __cplusplus
  #error APP_NAME requires a C++ compiler

@@ -9,6 +9,10 @@
  #define NOMINMAX
 #endif
 
+// Only what the app's own sources reach for through this header (IWYU, per
+// project). The logging library includes its own; anything a single file
+// needs beyond these, it includes itself.
+
 // On MSVC, <windows.h> defines a small subset of NTSTATUS codes, which then
 // conflict with the full set in <ntstatus.h>. WIN32_NO_STATUS suppresses those
 // definitions so <ntstatus.h> can own them without redefinition errors.
@@ -20,24 +24,16 @@
 #ifdef _MSC_VER
  #undef WIN32_NO_STATUS
 #endif
-#include <commctrl.h> // Common Controls
-#include <commdlg.h>  // Common dialogs
-#include <shellapi.h> // Shell functions
+#include <commctrl.h> // Common Controls: the speed trackbar, tooltips, _PACKVERSION
+#include <shellapi.h> // Shell_NotifyIcon (the tray), CommandLineToArgvW
 #include <ntstatus.h> // Full NTSTATUS codes (e.g. STATUS_SUCCESS)
 
-// C Runtime Headers
-#include <tchar.h> // For TCHAR, and automatically deducing wchar_t type
-
 // C++ STL Headers
-#include <algorithm> // std::min / std::max
-#include <atomic>    // std::atomic bool
-#include <cmath>     // std::round / std::lround
-#include <iomanip>   // std::setprecision
-#include <iostream>  // Console output and ostringstream
-#include <limits>    // Numeric limits
+#include <algorithm> // std::clamp
+#include <cmath>     // std::sqrt (run-away mode)
+#include <iostream>  // std::wcout (--version / --help)
 #include <sstream>   // std::wostringstream
 #include <string>    // std::string / std::wstring
-#include <vector>    // Vector storage
 
 #ifndef __cplusplus
  #error APP_NAME requires a C++ compiler

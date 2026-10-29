@@ -9,6 +9,10 @@
  #define NOMINMAX
 #endif
 
+// Only what the screensaver's own sources reach for through this header
+// (IWYU, per project). scr_main.cc includes <scrnsave.h> and <cstdlib>
+// itself; anything else a single file needs, it includes itself.
+
 // On MSVC, <windows.h> defines a small subset of NTSTATUS codes, which then
 // conflict with the full set in <ntstatus.h>. WIN32_NO_STATUS suppresses those
 // definitions so <ntstatus.h> can own them without redefinition errors.
@@ -20,24 +24,11 @@
 #ifdef _MSC_VER
  #undef WIN32_NO_STATUS
 #endif
-#include <commctrl.h> // Common Controls
-#include <commdlg.h>  // Common dialogs
-#include <shellapi.h> // Shell functions
+#include <commctrl.h> // Common Controls: the speed trackbar in the configure dialog
 #include <ntstatus.h> // Full NTSTATUS codes (e.g. STATUS_SUCCESS)
 
-// C Runtime Headers
-#include <tchar.h> // For TCHAR, and automatically deducing wchar_t type
-
 // C++ STL Headers
-#include <algorithm> // std::min / std::max
-#include <atomic>    // std::atomic bool
-#include <cmath>     // std::round / std::lround
-#include <iomanip>   // std::setprecision
-#include <iostream>  // Console output and ostringstream
-#include <limits>    // Numeric limits
-#include <sstream>   // std::wostringstream
-#include <string>    // std::string / std::wstring
-#include <vector>    // Vector storage
+#include <algorithm> // std::max
 
 #ifndef __cplusplus
  #error APP_NAME requires a C++ compiler
