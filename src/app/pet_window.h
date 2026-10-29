@@ -25,7 +25,10 @@ namespace petwin {
   // registers the window class, and shows the sprite parked at the top-left
   // of the screen. False on failure; LastLoadResult says why.
   [[nodiscard]] bool Create(HINSTANCE hInst, const pet::FrameIds& frameIds);
-  void Destroy();
+  // Takes the sprite window down, frees the frames, and has Explorer repaint
+  // its desktop so no trail is left. False if that repaint could not be asked
+  // for (see desktop::Restore); the window is gone either way.
+  [[nodiscard]] bool Destroy();
 
   // What the most recent sprite load reported, for the error message.
   pet::LoadResult LastLoadResult();

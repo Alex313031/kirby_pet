@@ -132,12 +132,12 @@ namespace desktop {
     return filled;
   }
 
-  void Restore() {
+  bool Restore() {
     if (s_desktop == nullptr || !IsWindow(s_desktop)) {
       FindHandle();
     }
     if (s_desktop == nullptr) {
-      return;
+      return false;
     }
     // Invalidate from the top of the desktop's window tree, children included:
     // on newer shells the wallpaper is painted by an ancestor of the list view
@@ -150,7 +150,7 @@ namespace desktop {
     }
     const UINT flags = RDW_INVALIDATE | RDW_ERASE |
                        (top == GetDesktopWindow() ? 0u : static_cast<UINT>(RDW_ALLCHILDREN));
-    RedrawWindow(top, nullptr, nullptr, flags);
+    return RedrawWindow(top, nullptr, nullptr, flags) != FALSE;
   }
 
 } // namespace desktop

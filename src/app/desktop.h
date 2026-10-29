@@ -26,8 +26,10 @@ namespace desktop {
   // Puts the desktop back the way Explorer draws it, wiping every trail we
   // painted: the whole desktop window tree is invalidated with erase and left
   // for Explorer to repaint. Asynchronous, so a hung shell can't hold up an
-  // exit. Call it on the way out.
-  void Restore();
+  // exit. Call it on the way out. False if there was no desktop window to
+  // ask, or Windows refused the invalidation: the trail then stays until
+  // something else repaints it.
+  [[nodiscard]] bool Restore();
 
 } // namespace desktop
 

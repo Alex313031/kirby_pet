@@ -233,16 +233,18 @@ namespace petwin {
     return true;
   }
 
-  void Destroy() {
+  bool Destroy() {
+    bool restored = true; // no window, no trail
     if (s_hwnd != nullptr) {
       DestroyWindow(s_hwnd);
       s_hwnd = nullptr;
       // Leave the desktop as we found it: the trail was only ever paint on
       // Explorer's window, so have Explorer draw its desktop again.
-      desktop::Restore();
+      restored = desktop::Restore();
     }
     pet::FreeSprites(&s_sprites);
     s_profile = nullptr;
+    return restored;
   }
 
   void SetSpeed(int pixelsPerTick) {

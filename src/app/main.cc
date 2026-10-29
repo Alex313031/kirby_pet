@@ -92,7 +92,7 @@ static HWND MakeControl(HWND hWnd,
                         int ctrlId);
 static bool CreateChildControls(HWND hWnd);
 static bool LayoutChildren(HWND hWnd);
-static void LoadSettings(HWND hWnd);
+static bool LoadSettings(HWND hWnd);
 static bool SaveSettings();
 static bool ResetSettings(HWND hWnd);
 static COLORREF CurrentEraseColor();
@@ -100,12 +100,12 @@ static bool RefreshSwatch();
 static void ApplySettingsToPet();
 static void ApplyMode(petwin::Mode mode);
 static void UpdateSpeedLabel();
-static void PickColor(HWND hWnd);
+static bool PickColor(HWND hWnd);
 static bool AddTrayIcon(HWND hWnd);
 static bool RemoveTrayIcon(HWND hWnd);
-static void ShowTrayMenu(HWND hWnd);
+static bool ShowTrayMenu(HWND hWnd);
 static bool MinimizeToTray(HWND hWnd);
-static void RestoreFromTray(HWND hWnd);
+static bool RestoreFromTray(HWND hWnd);
 
 /* ---------------------------- Static Functions ---------------------------- */
 
@@ -353,30 +353,38 @@ static void UpdateSpeedLabel() {
   SetWindowTextW(s_speedLabel, wostr.str().c_str());
 }
 
-static void PickColor(HWND hWnd) {
+// Runs the colour picker and, on a pick, shows and applies it. False if the
+// user cancelled and nothing changed.
+static bool PickColor(HWND hWnd) {
   if (!pet::PickEraseColor(hWnd, &s_erase)) {
-    return; // cancelled
+    return false; // cancelled
   }
   // The pick switched the desktop-colour setting off; show that.
   CheckDlgButton(hWnd, IDC_DESKTOPCOLOR, BST_UNCHECKED);
   EnableWindow(s_colorButton, TRUE);
   RefreshSwatch();
   ApplySettingsToPet();
-  LOG(INFO) << L"Erase color set";
+  return true;
 }
 
-static void LoadSettings(HWND hWnd) {
+// Fills the controls and the statics from the registry, defaults for whatever
+// isn't there. True if at least one saved value was found; false is a first
+// run (or the run after a reset), with every default in place.
+static bool LoadSettings(HWND hWnd) {
   DWORD value = 0;
 
   // Speed, colour and the desktop-colour switch are the library's, with the
   // display table's speed for this screen as the default.
-  pet::LoadEraseSettings(kRegSubkey, petwin::ScreenProfile().speed, &s_erase);
+  bool found = pet::LoadEraseSettings(kRegSubkey, petwin::ScreenProfile().speed, &s_erase);
   SendMessageW(s_speedSlider, TBM_SETPOS, TRUE, s_erase.speed);
   UpdateSpeedLabel();
 
   s_mode = petwin::MODE_FOLLOW;
-  if (pet::RegReadDword(kRegSubkey, kRegMode, &value) && value <= petwin::MODE_RUNAWAY) {
-    s_mode = static_cast<petwin::Mode>(value);
+  if (pet::RegReadDword(kRegSubkey, kRegMode, &value)) {
+    found = true;
+    if (value <= petwin::MODE_RUNAWAY) {
+      s_mode = static_cast<petwin::Mode>(value);
+    }
   }
   CheckDlgButton(hWnd, IDC_FOLLOW, s_mode == petwin::MODE_FOLLOW ? BST_CHECKED : BST_UNCHECKED);
   CheckDlgButton(hWnd, IDC_RUNAWAY, s_mode == petwin::MODE_RUNAWAY ? BST_CHECKED : BST_UNCHECKED);
@@ -384,6 +392,7 @@ static void LoadSettings(HWND hWnd) {
   s_underWindows = false;
   if (pet::RegReadDword(kRegSubkey, kRegUnderWindows, &value)) {
     s_underWindows = (value != 0);
+    found          = true;
   }
   CheckDlgButton(hWnd, IDC_UNDERWINDOWS, s_underWindows ? BST_CHECKED : BST_UNCHECKED);
 
@@ -394,9 +403,11 @@ static void LoadSettings(HWND hWnd) {
   tray_mode = false;
   if (pet::RegReadDword(kRegSubkey, kRegTray, &value)) {
     tray_mode = (value != 0);
+    found     = true;
   }
   CheckMenuItem(GetMenu(hWnd), IDM_TRAY, MF_BYCOMMAND | (tray_mode ? MF_CHECKED : MF_UNCHECKED));
   s_settingsLoaded = true;
+  return found;
 }
 
 // Writes every setting back to the registry. False if any value failed to
@@ -430,7 +441,7 @@ static bool ResetSettings(HWND hWnd) {
             L"The saved settings could not be removed, so nothing was reset.");
     return false;
   }
-  LoadSettings(hWnd);
+  LoadSettings(hWnd); // finds nothing now, by design: every default lands
   ApplySettingsToPet();
   return true;
 }
@@ -471,25 +482,33 @@ static bool RemoveTrayIcon(HWND hWnd) {
   return removed;
 }
 
-static void ShowTrayMenu(HWND hWnd) {
+// Pops the tray icon's menu at the cursor. False if it could not be built or
+// shown - the click then did nothing visible. (Without TPM_RETURNCMD,
+// TrackPopupMenu's zero means failure, not "dismissed without choosing".)
+static bool ShowTrayMenu(HWND hWnd) {
   POINT cursor;
   GetCursorPos(&cursor);
   HMENU menu = CreatePopupMenu();
   if (menu == nullptr) {
-    return;
+    return false;
   }
-  AppendMenuW(menu, MF_STRING, IDM_SHOW, L"&Show Settings");
-  AppendMenuW(menu, MF_STRING, IDM_ABOUT, L"&About");
-  AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-  AppendMenuW(menu, MF_STRING, IDM_EXIT, L"E&xit");
+  if (!AppendMenuW(menu, MF_STRING, IDM_SHOW, L"&Show Settings") ||
+      !AppendMenuW(menu, MF_STRING, IDM_ABOUT, L"&About") ||
+      !AppendMenuW(menu, MF_SEPARATOR, 0, nullptr) ||
+      !AppendMenuW(menu, MF_STRING, IDM_EXIT, L"E&xit")) {
+    DestroyMenu(menu);
+    return false;
+  }
   SetMenuDefaultItem(menu, IDM_SHOW, FALSE);
   // The classic tray-menu dance: without SetForegroundWindow the menu won't
   // dismiss when the user clicks away, and the WM_NULL afterwards works
   // around the shell leaving it stuck open on the second showing.
   SetForegroundWindow(hWnd);
-  TrackPopupMenu(menu, TPM_LEFTALIGN | TPM_RIGHTBUTTON, cursor.x, cursor.y, 0, hWnd, nullptr);
+  const bool shown = TrackPopupMenu(menu, TPM_LEFTALIGN | TPM_RIGHTBUTTON, cursor.x, cursor.y, 0,
+                                    hWnd, nullptr) != FALSE;
   PostMessageW(hWnd, WM_NULL, 0, 0);
   DestroyMenu(menu);
+  return shown;
 }
 
 // False if there is no tray icon to come back from, in which case the window
@@ -506,12 +525,15 @@ static bool MinimizeToTray(HWND hWnd) {
   return true;
 }
 
-static void RestoreFromTray(HWND hWnd) {
-  ShowWindow(hWnd, SW_SHOWNORMAL);
+// Brings the window back and takes the icon away. False if the window did not
+// come up or the shell kept the icon. SetForegroundWindow's refusal (the
+// foreground lock) is not counted: the window is up and on the taskbar anyway.
+static bool RestoreFromTray(HWND hWnd) {
+  ShowWindow(hWnd, SW_SHOWNORMAL); // its return is "was visible", not success
+  const bool shown = IsWindowVisible(hWnd) != FALSE;
   SetForegroundWindow(hWnd);
-  if (!RemoveTrayIcon(hWnd)) {
-    LOG(WARN) << L"Could not remove the tray icon";
-  }
+  const bool iconGone = RemoveTrayIcon(hWnd);
+  return shown && iconGone;
 }
 
 /* ------------------------------- Functions -------------------------------- */
@@ -700,7 +722,9 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
         LOG(ERROR) << L"Failed to lay out the child controls!";
         return -1;
       }
-      LoadSettings(hWnd);
+      if (!LoadSettings(hWnd)) {
+        LOG(INFO) << L"No saved settings; using the defaults";
+      }
       if (!InitApp(hWnd)) {
         return -1;
       }
@@ -746,10 +770,14 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
       switch (LOWORD(lParam)) {
         case WM_LBUTTONUP:
         case WM_LBUTTONDBLCLK:
-          RestoreFromTray(hWnd);
+          if (!RestoreFromTray(hWnd)) {
+            LOG(WARN) << L"Could not restore the window from the tray";
+          }
           break;
         case WM_RBUTTONUP:
-          ShowTrayMenu(hWnd);
+          if (!ShowTrayMenu(hWnd)) {
+            LOG(WARN) << L"Could not show the tray menu";
+          }
           break;
         default:
           break;
@@ -784,7 +812,9 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
           ApplySettingsToPet();
           break;
         case IDC_COLOR:
-          PickColor(hWnd);
+          if (PickColor(hWnd)) {
+            LOG(INFO) << L"Erase color set";
+          }
           break;
         case IDM_TRAY:
           tray_mode = ToggleMenuCheck(hWnd, IDM_TRAY);
@@ -796,7 +826,9 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
           }
           break;
         case IDM_SHOW:
-          RestoreFromTray(hWnd);
+          if (!RestoreFromTray(hWnd)) {
+            LOG(WARN) << L"Could not restore the window from the tray";
+          }
           break;
         case IDM_EXIT:
           ShutDownApp();
@@ -851,7 +883,9 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
       if (!RemoveTrayIcon(hWnd)) {
         LOG(WARN) << L"Could not remove the tray icon";
       }
-      petwin::Destroy();
+      if (!petwin::Destroy()) {
+        LOG(WARN) << L"Could not have the desktop repainted; a trail may be left behind";
+      }
       if (s_swatchBrush != nullptr) {
         DeleteObject(s_swatchBrush);
         s_swatchBrush = nullptr;
