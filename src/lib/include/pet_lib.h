@@ -10,11 +10,16 @@
 // UNICODE everywhere: every string here is wchar_t and every Win32 call is
 // the W variant. Building with UNICODE / _UNICODE defined is the consumer's
 // responsibility; pet_version.h below only sets them if nothing has yet.
+//
+// Static or shared: the same header serves libpet_lib.a and pet_lib.dll. Each
+// function is declared LIB_API, which lib_export.h turns into dllexport,
+// dllimport or nothing depending on which is being built or linked.
 
 // clang-format off
 // Keep this above <windows.h>: it pins _WIN32_WINNT/WINVER and the UNICODE
 // defines, which windows.h reads on its way through.
 #include "pet_version.h"
+#include "lib_export.h" // LIB_API
 
 // Use std::min / std::max, instead of the Win32-specific MIN/MAX.
 #ifndef NOMINMAX
@@ -24,6 +29,18 @@
 #include <windows.h>
 
 // clang-format on
+
+// Normally, for a DLL, you would only use "C safe" types, but the lib is always compiled with
+// the consumer using the same compiler (and mostly identical flags), so for ease, we pass
+// complex C++ types. Note that means that although we supply a .def, the .dll may not 
+// be portable to your app if you built it with i.e. MSVC.
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#ifdef PET_LIB_DLL
+ extern HINSTANCE gHinstDLL;
+#endif
 
 namespace pet {
 
@@ -56,7 +73,7 @@ namespace pet {
 
   // The four frames and everything drawn or derived from them, all the same
   // size. Per facing: the 32-bpp frame itself (a DIB section, so the alpha
-  // channel can be read); its opaque-pixel region, origin (0,0), for shaping a
+  // channel can be read); its opaque-pixel region rgn, origin (0,0), for shaping a
   // window; and the two halves of the classic two-blit transparent draw - a
   // mask (white where transparent, black where opaque) and the frame with its
   // transparent pixels blacked out. `memDC` is kept for DrawFrame so no DC is
@@ -117,32 +134,32 @@ namespace pet {
 
   // The display-table row for a screen `screenHeight` pixels tall: the first
   // row whose maxHeight it does not exceed. The last row catches everything.
-  const DisplayProfile& ProfileForHeight(int screenHeight);
+  LIB_API const DisplayProfile& ProfileForHeight(int screenHeight);
 
   // Loads the frames from `hInst`'s RT_BITMAP resources `resIds` (Dir order),
   // resamples each to `spriteSize` pixels tall (0 keeps the native size;
   // nearest-neighbour, so the pixel art stays crisp and the alpha survives),
   // and builds their regions and blit masks. Anything `out` already holds is
   // freed first. On any failure `out` is left empty and the reason returned.
-  [[nodiscard]] LoadResult LoadSprites(HINSTANCE hInst,
-                                       const int (&resIds)[DIR_COUNT],
-                                       int spriteSize,
-                                       Sprites* out);
+  [[nodiscard]] LIB_API LoadResult LoadSprites(HINSTANCE hInst,
+                                               const int (&resIds)[DIR_COUNT],
+                                               int spriteSize,
+                                               Sprites* out);
 
   // LoadSprites with the set and size a display-table row calls for.
-  [[nodiscard]] LoadResult LoadSpritesForProfile(HINSTANCE hInst,
-                                                 const FrameIds& frameIds,
-                                                 const DisplayProfile& profile,
-                                                 Sprites* out);
+  [[nodiscard]] LIB_API LoadResult LoadSpritesForProfile(HINSTANCE hInst,
+                                                         const FrameIds& frameIds,
+                                                         const DisplayProfile& profile,
+                                                         Sprites* out);
 
   // A short description of a LoadResult, for logs and message boxes.
-  const wchar_t* LoadResultText(LoadResult result);
+  LIB_API const wchar_t* LoadResultText(LoadResult result);
 
-  void FreeSprites(Sprites* sprites);
+  LIB_API void FreeSprites(Sprites* sprites);
 
   // A caller-owned copy of a frame's region (origin 0,0). SetWindowRgn takes
   // ownership of what it's given, so hand it a fresh clone each time.
-  [[nodiscard]] HRGN CloneRegion(const Sprites& sprites, Dir dir);
+  [[nodiscard]] LIB_API HRGN CloneRegion(const Sprites& sprites, Dir dir);
 
   /* ------------------------------- Movement --------------------------------- */
 
@@ -150,25 +167,25 @@ namespace pet {
   // virtual screen or a client rect) with a sprite of `spriteSize`, parked at
   // area's top-left and facing down. `speed` is clamped to kSpeedMin..Max.
   // These three are false only for a null `vacuum`.
-  bool VacuumInit(Vacuum* vacuum, const RECT& area, const SIZE& spriteSize, int speed);
+  LIB_API bool VacuumInit(Vacuum* vacuum, const RECT& area, const SIZE& spriteSize, int speed);
 
   // Aims the vacuum. The target is clamped into `bounds`, so a point past the
   // edge means "as far that way as it can go" and VacuumStep's false always
   // means "arrived".
-  bool VacuumSetTarget(Vacuum* vacuum, int targetX, int targetY);
+  LIB_API bool VacuumSetTarget(Vacuum* vacuum, int targetX, int targetY);
 
   // Re-bounds `vacuum` to a new `area` (e.g. after WM_DISPLAYCHANGE), keeping
   // its position and target but clamping both back inside if the area shrank.
-  bool VacuumSetArea(Vacuum* vacuum, const RECT& area);
+  LIB_API bool VacuumSetArea(Vacuum* vacuum, const RECT& area);
 
   // Advances one tick toward the target: runs at `speed`, jumps the last gap
   // when closer than that, and turns to face the dominant axis of the move.
   // Returns true if the position changed, false once it is at the target.
-  bool VacuumStep(Vacuum* vacuum);
-  bool VacuumAtTarget(const Vacuum* vacuum);
+  LIB_API bool VacuumStep(Vacuum* vacuum);
+  LIB_API bool VacuumAtTarget(const Vacuum* vacuum);
 
   // The sprite's footprint at its current position.
-  RECT VacuumRect(const Vacuum* vacuum);
+  LIB_API RECT VacuumRect(const Vacuum* vacuum);
 
   /* ------------------------------- Drawing ---------------------------------- */
 
@@ -177,20 +194,20 @@ namespace pet {
   // Correct on any DC, so the screensaver can composite onto a back buffer.
   // False if the sprites aren't loaded, the facing is out of range, or GDI
   // refused a blit.
-  [[nodiscard]] bool DrawVacuum(HDC hdc, const Sprites& sprites, const Vacuum& vacuum);
+  [[nodiscard]] LIB_API bool DrawVacuum(HDC hdc, const Sprites& sprites, const Vacuum& vacuum);
 
   // Blits frame `dir` with its top-left at (posX, posY), transparent pixels
   // left alone. DrawVacuum is this at the vacuum's position; a window that is
   // the sprite paints with (0, 0). Same false cases as DrawVacuum.
-  [[nodiscard]] bool DrawFrame(HDC hdc, const Sprites& sprites, Dir dir, int posX, int posY);
+  [[nodiscard]] LIB_API bool DrawFrame(HDC hdc, const Sprites& sprites, Dir dir, int posX, int posY);
 
   // Fills `rect` with a solid color: the "vacuumed clean" eraser. False if
   // there is no DC, or GDI refused the brush or the fill.
-  [[nodiscard]] bool EraseRect(HDC hdc, const RECT& rect, COLORREF color);
+  [[nodiscard]] LIB_API bool EraseRect(HDC hdc, const RECT& rect, COLORREF color);
 
   // The color both consumers erase to unless the user picked one: the desktop
   // background (COLOR_DESKTOP), read live so a theme change tracks.
-  COLORREF DefaultEraseColor();
+  LIB_API COLORREF DefaultEraseColor();
 
   /* ------------------------------- Settings --------------------------------- */
 
@@ -199,32 +216,36 @@ namespace pet {
   // colour for anything not saved. The speed is clamped to kSpeedMin..Max.
   // True if at least one saved value was found; false means every field is a
   // default - a first run, or the run after a reset.
-  bool LoadEraseSettings(const wchar_t* subkey, int defaultSpeed, EraseSettings* settings);
+  LIB_API bool LoadEraseSettings(const wchar_t* subkey, int defaultSpeed, EraseSettings* settings);
 
   // Writes the three persisted fields back. False if any write failed.
-  [[nodiscard]] bool SaveEraseSettings(const wchar_t* subkey, const EraseSettings& settings);
+  [[nodiscard]] LIB_API bool SaveEraseSettings(const wchar_t* subkey, const EraseSettings& settings);
 
   // The colour the vacuum erases to right now: the live desktop colour or the
   // custom one, per the setting.
-  COLORREF EffectiveEraseColor(const EraseSettings& settings);
+  LIB_API COLORREF EffectiveEraseColor(const EraseSettings& settings);
 
   // Runs the ChooseColor dialog over `owner`, seeded with the custom colour and
   // palette. On OK stores the pick, switches `useDesktopColor` off (picking a
   // colour means "not the desktop's"), and returns true; on Cancel changes
   // nothing and returns false. The caller refreshes its own controls.
-  [[nodiscard]] bool PickEraseColor(HWND owner, EraseSettings* settings);
+  [[nodiscard]] LIB_API bool PickEraseColor(HWND owner, EraseSettings* settings);
 
   /* ------------------------------- Registry --------------------------------- */
 
   // Minimal HKCU\Software\<subkey> DWORD persistence shared by app and saver.
-  [[nodiscard]] bool RegReadDword(const wchar_t* subkey, const wchar_t* name, DWORD* out);
-  [[nodiscard]] bool RegWriteDword(const wchar_t* subkey, const wchar_t* name, DWORD value);
+  [[nodiscard]] LIB_API bool RegReadDword(const wchar_t* subkey, const wchar_t* name, DWORD* out);
+  [[nodiscard]] LIB_API bool RegWriteDword(const wchar_t* subkey, const wchar_t* name, DWORD value);
 
   // Removes HKCU\Software\<subkey> and everything saved under it, so the next
   // load finds nothing and falls back to the defaults. True if it is gone,
   // including when it never existed.
-  [[nodiscard]] bool RegDeleteSubkey(const wchar_t* subkey);
+  [[nodiscard]] LIB_API bool RegDeleteSubkey(const wchar_t* subkey);
 
 } // namespace pet
+
+#ifdef __cplusplus
+} // extern "C"
+#endif
 
 #endif // PET_LIB_H_

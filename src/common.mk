@@ -56,6 +56,20 @@ SUBSYSTEM   := 5.00
 SIMDFLAGS   := -mfpmath=sse -mfxsr -msse
 endif
 
+# Which build of the library the app and the screensaver link, like the GN
+# use_shared_pet_lib argument: 0 (the default) links libpet_lib.a into each
+# binary, 1 links pet_lib.dll through its import library, with the .dll put
+# beside them in OUT_DIR. The consumers' objects differ (PET_LIB_SHARED makes
+# the lib's functions dllimport), so switching needs a `make clean`.
+USE_SHARED_PET_LIB ?= 0
+ifeq ($(USE_SHARED_PET_LIB),1)
+PET_LIB_FILE  := $(LIB_DIR)/libpet_lib.dll.a   # import library (the .dll itself lands in OUT_DIR)
+PET_LIB_DEFS  := -DPET_LIB_SHARED
+else
+PET_LIB_FILE  := $(LIB_DIR)/libpet_lib.a
+PET_LIB_DEFS  :=
+endif
+
 # Compiler and tools. Taken from gn-legacy's own tools/ tree when this checkout
 # lives inside it (../../tools/mingw/<host>/<arch>/bin, the same binaries GN
 # runs), otherwise from PATH, so a standalone checkout builds with whichever

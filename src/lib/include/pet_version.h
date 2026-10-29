@@ -1,7 +1,9 @@
 #ifndef PET_VERSION_H_
 #define PET_VERSION_H_
 
-// This file is for specifying the target Windows version, the string helpers, and the vendor
+// Consumers: don't import this directly, import pet_lib.h instead!
+
+// This file is for specifying the lib's target Windows version, the string helpers, and the vendor
 // strings shared by the lib, app, and screensaver. Each of those carries its own version
 // number in its own version.h (lib/version.h, app/version.h, scr/version.h), which includes
 // this file first.
@@ -48,6 +50,9 @@
 #endif
 
 #include "sdkddkver.h"
+
+// For handling DLL/static lib build defines
+#include "lib_export.h"
 
 // clang-format off: Version DEFINES left alone
 

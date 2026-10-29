@@ -2,7 +2,17 @@
 
 # Library containing vacuum sprite moving logic and other baseline
 # function primitives that both the app and screensaver use.
-static_library("pet_lib") {
+
+group("pet_lib_all") {
+  public_deps = [
+    ":pet_lib_static",
+    ":pet_lib_shared"
+  ]
+}
+
+# Static library, normally used. No PET_LIB_SHARED, so LIB_API expands to
+# nothing on both sides (see include/lib_export.h).
+static_library("pet_lib_static") {
   configs += [
     ":pet_lib_private_config",
   ]
@@ -10,6 +20,7 @@ static_library("pet_lib") {
   precompiled_source = "pch.pch"
   sources = [
     "framework.h",
+    "include/lib_export.h",
     "include/pet_lib.h",
     "include/pet_version.h",
     "pet.cc",
@@ -18,6 +29,43 @@ static_library("pet_lib") {
     "version.h",
   ]
 
+  # libpet_lib.a or pet_lib.lib
+  output_name = "pet_lib"
+}
+
+# The same sources as pet_lib.dll (+ libpet_lib.dll.a import library).
+# PET_LIB_SHARED together with the private config's PET_LIB_ makes LIB_API
+# dllexport, defines PET_LIB_DLL for DllMain and the .rc's VFT_DLL, and
+# switches the version stamp's original filename to pet_lib.dll.
+shared_library("pet_lib_shared") {
+  configs += [
+    ":pet_lib_private_config",
+  ]
+  defines = [ "PET_LIB_SHARED" ]
+  precompiled_header = "framework.h"
+  precompiled_source = "pch.pch"
+  sources = [
+    "framework.h",
+    "include/lib_export.h",
+    "include/pet_lib.h",
+    "include/pet_version.h",
+    "pet.cc",
+    "pet.h",
+    "pet_lib.rc",
+    "version.h",
+  ]
+
+  # The .def names every export, DllGetVersion under its undecorated name as
+  # the shell expects (dllexport alone would export the stdcall-decorated
+  # DllGetVersion@4). --enable-stdcall-fixup lets ld match that name to the
+  # decorated symbol without a warning per link.
+  inputs = [ "pet_lib.def" ]
+  ldflags = [
+    rebase_path("pet_lib.def", root_build_dir),
+    "-Wl,--enable-stdcall-fixup",
+  ]
+
+  # pet_lib.dll
   output_name = "pet_lib"
 }
 
@@ -43,7 +91,15 @@ config("pet_lib_private_config") {
   ]
 }
 
-# Public config for consumers
-config("pet_lib_config") {
+# Public config for consumers of the static lib (the app and the screensaver)
+config("pet_lib_static_config") {
+  include_dirs = [ "./include", ]
+}
+
+# Public config for consumers of pet_lib.dll: PET_LIB_SHARED without the
+# lib's private PET_LIB_ makes LIB_API dllimport. Depend on :pet_lib_shared
+# and add this config in place of :pet_lib_static_config.
+config("pet_lib_shared_config") {
+  defines = [ "PET_LIB_SHARED" ]
   include_dirs = [ "./include", ]
 }

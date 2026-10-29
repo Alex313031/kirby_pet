@@ -1,7 +1,8 @@
 # kirby_pet MAKEFILE for compiling under MinGW32
 #
 # Drives the three sub-builds in dependency order, mirroring src/BUILD.gn:
-#   src/lib  -> libpet_lib.a      (the shared static library)
+#   src/lib  -> libpet_lib.a      (the static library the two below link)
+#               pet_lib.dll       (the same lib shared, + libpet_lib.dll.a)
 #   src/app  -> kirby_pet.exe     (depends on lib + logging)
 #   src/scr  -> kirby_scr.scr     (depends on lib)
 # Each subdirectory's Makefile also works on its own (`make -C src/scr`) and
@@ -43,7 +44,7 @@ clean:
 
 # Testing rules #
 test:
-	ls -la $(OUT_DIR)/kirby_pet.exe $(OUT_DIR)/kirby_scr.scr $(LIB_DIR)/libpet_lib.a
+	ls -la $(OUT_DIR)/kirby_pet.exe $(OUT_DIR)/kirby_scr.scr $(OUT_DIR)/pet_lib.dll $(LIB_DIR)/libpet_lib.a $(LIB_DIR)/libpet_lib.dll.a
 
 # PHONY targets for build deps tracking
 .PHONY: all $(NAME) lib app scr clean test

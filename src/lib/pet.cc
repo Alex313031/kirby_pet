@@ -2,11 +2,24 @@
 // app and the Kirby screensaver.
 
 #include "pet.h"
+#include "version.h"
 
 #include <cstdlib> // std::abs(int)
 #include <cstring> // memcpy
 
 #include "include/pet_lib.h"
+
+#ifdef PET_LIB_DLL
+ #include <shlwapi.h> // DLLVERSIONINFO / DLLVERSIONINFO2, for DllGetVersion
+
+ // The DLL's own module handle, should anything ever need a resource out of
+ // the DLL rather than the consumer (nothing does yet).
+ HINSTANCE gHinstDLL        = nullptr;
+ static bool is_initialized = false;
+ // True when the loader pulled us in as an import at process start rather
+ // than via LoadLibrary. Nothing acts on it; it is there for a debugger.
+ [[maybe_unused]] static bool was_static_load = false;
+#endif
 
 namespace pet {
 
@@ -673,3 +686,105 @@ namespace pet {
   }
 
 } // namespace pet
+
+// DLL-only functions
+#ifdef PET_LIB_DLL
+
+static BOOL InitDll() {
+  is_initialized = true;
+  if (is_initialized) {
+    return TRUE;
+  } else {
+    return FALSE;
+  }
+}
+
+static BOOL DeInitDll() {
+  is_initialized = false;
+  if (!is_initialized) {
+    return TRUE;
+  } else {
+    return FALSE;
+  }
+}
+
+// Main entry point when loading/unloading .DLL from address space of another process/thread.
+// MUST have exact function signature BOOL WINAPI, and C linkage: the MinGW CRT's
+// DllMainCRTStartup looks for the unmangled name, and would silently fall back
+// to its own do-nothing DllMain if this one were mangled. Not an export (no
+// LIB_API): the loader reaches it through the entry point, not the export table.
+// See https://www.transmissionzero.co.uk/computing/advanced-mingw-dll-topics/
+extern "C" BOOL WINAPI DllMain(HINSTANCE hInstDLL, DWORD dwReason, LPVOID lpvReserved) {
+  gHinstDLL = hInstDLL;
+
+  switch (dwReason) {
+    // Called on LoadLibrary or static import
+    case DLL_PROCESS_ATTACH: {
+      // Non-NULL means dll was statically loaded.
+      if (lpvReserved != nullptr) {
+        was_static_load = true;
+      }
+      // Nothing here is per-thread, so skip the thread attach/detach calls.
+      DisableThreadLibraryCalls(hInstDLL);
+      return InitDll();
+    }
+    // Called when threads are run by parent process after DLL_PROCESS_ATTACH
+    // (not after DisableThreadLibraryCalls above; kept for completeness)
+    case DLL_THREAD_ATTACH: {
+      if (is_initialized) {
+        return TRUE; // Skip unnecessary call to InitDll
+      } else {
+        return InitDll();
+      }
+    }
+    // Called when FreeLibrary is called or program shutting down
+    case DLL_PROCESS_DETACH: {
+      // If lpvReserved is NULL, DLL load failed or FreeLibrary was called.
+      if (lpvReserved == nullptr) {
+        return DeInitDll();
+      } else {
+        // Process is terminating
+        return TRUE;
+      }
+    }
+    case DLL_THREAD_DETACH: {
+      return TRUE; // Unused in pet_lib.dll
+    }
+    default:
+      return FALSE;
+  }
+}
+
+// The shell's standard version query (what shlwapi's DllGetVersion protocol
+// expects): STDAPI shape, i.e. C linkage + stdcall, exported undecorated via
+// the .def. Fills whichever of DLLVERSIONINFO / DLLVERSIONINFO2 the caller
+// sized. No exceptions cross this boundary - a bad size is a return code.
+extern "C" LIB_API HRESULT CALLBACK DllGetVersion(DLLVERSIONINFO* pdvi) {
+  if (pdvi == nullptr || !is_initialized) {
+    return E_POINTER;
+  }
+
+  switch (pdvi->cbSize) {
+    case sizeof(DLLVERSIONINFO2): {
+      // Caller passed DLLVERSIONINFO2 - fill extended fields
+      DLLVERSIONINFO2* pdvi2 = reinterpret_cast<DLLVERSIONINFO2*>(pdvi);
+      pdvi2->dwFlags         = 0;
+      pdvi2->ullVersion      = MAKEDLLVERULL(MAJOR_VERSION, MINOR_VERSION, BUILD_VERSION, 0);
+    }
+      [[fallthrough]]; // no break, fall through for backward compatibility DLLVERSIONINFO
+    case sizeof(DLLVERSIONINFO): {
+      // Fill base DLLVERSIONINFO fields
+      pdvi->dwMajorVersion = MAJOR_VERSION;
+      pdvi->dwMinorVersion = MINOR_VERSION;
+      pdvi->dwBuildNumber  = BUILD_VERSION;
+      pdvi->dwPlatformID   = DLLVER_PLATFORM_NT;
+      return S_OK;
+    }
+    default:
+      break;
+  }
+  // cbSize is neither structure's - unsupported
+  return E_INVALIDARG;
+}
+
+#endif

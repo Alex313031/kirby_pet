@@ -1,0 +1,6 @@
+# Set to true to use .dll pet lib instead of baked in static lib.
+
+declare_args() {
+  use_shared_pet_lib = false
+}
+

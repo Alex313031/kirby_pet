@@ -12,7 +12,7 @@
 // Adhere to semver -> semver.org
 #define MAJOR_VERSION 0
 #define MINOR_VERSION 0
-#define BUILD_VERSION 5
+#define BUILD_VERSION 6
 
 #define VERSION_STRING  _VERSION(MAJOR_VERSION, MINOR_VERSION, BUILD_VERSION) // L"0.0.2"
 
@@ -22,7 +22,11 @@
 
 #define FILE_DESCRIPT L"Desktop Pet Library" // File description
 #define INTERNAL_NAME WIDEN(STRINGIZE(INTERNAL_TOKENS)) // L"pet_lib"
-#define ORIG_FILENAME WIDEN(STRINGIZE(INTERNAL_TOKENS.lib)) // L"pet_lib.lib"
+#ifdef PET_LIB_DLL
+ #define ORIG_FILENAME WIDEN(STRINGIZE(INTERNAL_TOKENS.dll)) // L"pet_lib.dll"
+#else
+ #define ORIG_FILENAME WIDEN(STRINGIZE(INTERNAL_TOKENS.lib)) // L"pet_lib.lib"
+#endif
 #define PRODUCT_NAME  INTERNAL_NAME // Product name
 
 #ifndef VS_FF_RELEASE

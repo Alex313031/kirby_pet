@@ -1,5 +1,7 @@
 # Copyright 2026 Alex313031
 
+import("../lib/pet_lib.gni")
+
 # Vacuum screensaver, vacuums the frozen desktop top to bottom
 executable("kirby_scr") {
   configs += [
@@ -36,7 +38,13 @@ executable("kirby_scr") {
     "res/scr.ico",
   ]
 
-  deps = [ "../lib:pet_lib" ]
+  # Static lib by default; `use_shared_pet_lib = true` links pet_lib.dll
+  # instead (GN links its import library and puts the .dll beside the .scr).
+  if (use_shared_pet_lib) {
+    deps = [ "../lib:pet_lib_shared" ]
+  } else {
+    deps = [ "../lib:pet_lib_static" ]
+  }
 
   output_name = "kirby_scr"
   if (is_debug || dcheck_enabled) {
@@ -47,7 +55,13 @@ executable("kirby_scr") {
 }
 
 config("kirby_scr_config") {
-  configs = [ "../lib:pet_lib_config" ]
+  # The matching lib config: the shared one adds PET_LIB_SHARED, which turns
+  # LIB_API into dllimport (see ../lib/include/lib_export.h).
+  if (use_shared_pet_lib) {
+    configs = [ "../lib:pet_lib_shared_config" ]
+  } else {
+    configs = [ "../lib:pet_lib_static_config" ]
+  }
   defines = [ "PET_SCR" ]
   cflags = []
   include_dirs = [ "./", ]

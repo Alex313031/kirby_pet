@@ -1,0 +1,32 @@
+LIBRARY "pet_lib.dll"
+EXPORTS
+  ; Sprites
+  ProfileForHeight
+  LoadSprites
+  LoadSpritesForProfile
+  LoadResultText
+  FreeSprites
+  CloneRegion
+  ; Movement
+  VacuumInit
+  VacuumSetTarget
+  VacuumSetArea
+  VacuumStep
+  VacuumAtTarget
+  VacuumRect
+  ; Drawing
+  DrawVacuum
+  DrawFrame
+  EraseRect
+  DefaultEraseColor
+  ; Settings
+  LoadEraseSettings
+  SaveEraseSettings
+  EffectiveEraseColor
+  PickEraseColor
+  ; Registry
+  RegReadDword
+  RegWriteDword
+  RegDeleteSubkey
+  ; The shell's version query (stdcall; the undecorated name is the convention)
+  DllGetVersion
