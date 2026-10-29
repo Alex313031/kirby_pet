@@ -88,12 +88,12 @@ static void PaintFootprint(const RECT& rect);
 static void Tick(HWND hWnd);
 static bool CreateCanvas(HWND hWnd);
 static void DestroyCanvas();
-static void LoadSettings(int defaultSpeed);
-static void StartSound();
+static bool LoadSettings(int defaultSpeed);
+static bool StartSound();
 static void StopSound();
 static void UpdateSpeedLabel(HWND hDlg);
 static void RefreshSwatch(HWND hDlg);
-static void PickColor(HWND hDlg);
+static bool PickColor(HWND hDlg);
 static INT_PTR CALLBACK AboutDlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam);
 
 /* ---------------------------- Static Functions ---------------------------- */
@@ -369,28 +369,33 @@ static void DestroyCanvas() {
 
 // Everything persisted: the library's erase settings, with `defaultSpeed`
 // (the display table's) as the fallback, and our sound switch, on by default.
-static void LoadSettings(int defaultSpeed) {
-  pet::LoadEraseSettings(kRegSubkey, defaultSpeed, &s_erase);
+// True if at least one saved value was found; false is a first run, with
+// every default in place.
+static bool LoadSettings(int defaultSpeed) {
+  bool found  = pet::LoadEraseSettings(kRegSubkey, defaultSpeed, &s_erase);
   DWORD value = 0;
   s_playSound = true;
   if (pet::RegReadDword(kRegSubkey, kRegPlaySound, &value)) {
     s_playSound = (value != 0);
+    found       = true;
   }
+  return found;
 }
 
 /* --------------------------------- Sound ---------------------------------- */
 
 // The Tradition, running, for as long as the saver is up - if the user wants
 // it. The system loops the WAVE resource itself (Microsoft ADPCM, which every
-// Windows plays), so there is nothing to feed or time. Fails silently on a
-// machine with no sound device, and never substitutes the default system
-// sound.
-static void StartSound() {
+// Windows plays), so there is nothing to feed or time. Never substitutes the
+// default system sound. False if the sound was wanted but would not start -
+// no sound device, or a resource that won't play; off by choice is not a
+// failure.
+static bool StartSound() {
   if (!s_playSound) {
-    return;
+    return true;
   }
-  PlaySoundW(MAKEINTRESOURCEW(IDR_3CB_WAV), hMainInstance,
-             SND_RESOURCE | SND_ASYNC | SND_LOOP | SND_NODEFAULT);
+  return PlaySoundW(MAKEINTRESOURCEW(IDR_3CB_WAV), hMainInstance,
+                    SND_RESOURCE | SND_ASYNC | SND_LOOP | SND_NODEFAULT) != FALSE;
 }
 
 static void StopSound() {
@@ -409,14 +414,17 @@ static void RefreshSwatch(HWND hDlg) {
   InvalidateRect(GetDlgItem(hDlg, IDC_SWATCH), nullptr, TRUE);
 }
 
-static void PickColor(HWND hDlg) {
+// Runs the colour picker and, on a pick, shows it. False if the user
+// cancelled and nothing changed.
+static bool PickColor(HWND hDlg) {
   if (!pet::PickEraseColor(hDlg, &s_erase)) {
-    return; // cancelled
+    return false; // cancelled
   }
   // The pick switched the desktop-colour setting off; show that.
   CheckDlgButton(hDlg, IDC_DESKTOPCOLOR, BST_UNCHECKED);
   EnableWindow(GetDlgItem(hDlg, IDC_COLOR), TRUE);
   RefreshSwatch(hDlg);
+  return true;
 }
 
 /* ------------------------------ About dialog ------------------------------ */
@@ -481,7 +489,10 @@ LRESULT WINAPI ScreenSaverProcW(HWND hWnd, UINT message, WPARAM wParam, LPARAM l
       StartPass(/*firstPass=*/true);
       SetTimer(hWnd, kTickTimerId, kTickMs, nullptr);
       if (!fChildPreview) {
-        StartSound(); // the real thing only; the Display Properties preview stays quiet
+        // The real thing only; the Display Properties preview stays quiet. The
+        // result goes unused: a saver has nowhere to report a missing sound
+        // device, and runs the same without it.
+        StartSound();
       }
       break; // DefScreenSaverProc wants to see WM_CREATE as well
     }

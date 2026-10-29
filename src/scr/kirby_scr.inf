@@ -60,7 +60,7 @@ HKLM,%UninstallKey%
 
 [Strings]
 AppName="Kirby Vacuum Screensaver"
-AppVer="0.0.4"
+AppVer="0.0.5"
 Developer="Alex313031"
 GitURL="https://github.com/Alex313031/kirby_pet"
 DiskName="Kirby Vacuum Screensaver Files"
