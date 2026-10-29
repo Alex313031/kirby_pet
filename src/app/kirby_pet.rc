@@ -42,8 +42,9 @@ IDB_PET_DOWN_2X   BITMAP  "../res/bmp/down_2x.bmp"
 IDB_PET_LEFT_2X   BITMAP  "../res/bmp/left_2x.bmp"
 IDB_PET_RIGHT_2X  BITMAP  "../res/bmp/right_2x.bmp"
 
+// US English, to match the "040904B0" string block and the Translation below.
 #if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_ENU)
-LANGUAGE LANG_ENGLISH, SUBLANG_NEUTRAL
+LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
 #endif
 
 #ifdef APSTUDIO_INVOKED
@@ -62,6 +63,12 @@ BEGIN
     "#include ""windows.h""\r\n"
     "#undef APSTUDIO_HIDDEN_SYMBOLS\r\n"
     "#include ""winres.h""\r\n"
+    "\0"
+END
+
+3 TEXTINCLUDE
+BEGIN
+    "\r\n"
     "\0"
 END
 
@@ -115,10 +122,17 @@ VS_VERSION_INFO VERSIONINFO
  FILEVERSION MAJOR_VERSION, MINOR_VERSION, BUILD_VERSION
  PRODUCTVERSION MAJOR_VERSION, MINOR_VERSION, BUILD_VERSION
  FILEFLAGSMASK VS_FFI_FILEFLAGSMASK // 0x0000003F
-#ifdef _DEBUG
- FILEFLAGS VS_FF_DEBUG // 0x00000001L // Debug build
+// VS_FF_PRERELEASE marks a pre-1.0 build (version tools show it); it drops
+// off by itself once MAJOR_VERSION reaches 1.
+#if MAJOR_VERSION == 0
+ #define PRERELEASE_FLAG VS_FF_PRERELEASE // 0x00000002L
 #else
- FILEFLAGS VS_FF_RELEASE // 0x00000000L // Release build
+ #define PRERELEASE_FLAG 0
+#endif
+#ifdef _DEBUG
+ FILEFLAGS VS_FF_DEBUG | PRERELEASE_FLAG // 0x00000001L // Debug build
+#else
+ FILEFLAGS VS_FF_RELEASE | PRERELEASE_FLAG // 0x00000000L // Release build
 #endif  // _DEBUG
  FILEOS VOS_NT_WINDOWS32 // 0x00040004L (Windows NT and later)
  FILETYPE VFT_APP // 0x00000001L
